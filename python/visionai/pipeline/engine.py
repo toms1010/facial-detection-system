@@ -160,14 +160,17 @@ class PipelineEngine:
 
         ``source`` may be a :class:`FrameSource` or a CLI-style spec string
         such as ``"0"``, ``"/dev/video0"``, ``"synthetic"`` or a video path.
+        An empty or whitespace-only spec is treated as "not supplied" and falls
+        back to the configured camera.
         """
         from visionai.camera.camera_manager import open_source as build
 
+        spec = source.strip() if isinstance(source, str) else None
         resolved: FrameSource
-        if isinstance(source, str) and source:
-            resolved = build(source, self.settings.camera)
+        if spec:
+            resolved = build(spec, self.settings.camera)
             self._owns_source = True
-        elif source is not None:
+        elif source is not None and not isinstance(source, str):
             resolved = source
             self._owns_source = True
         elif self._source is not None:
@@ -185,6 +188,17 @@ class PipelineEngine:
             raise VisionAIError("engine has been closed")
         if self._state is PipelineState.RUNNING:
             return
+        # A worker left over from a previous run must be gone before another
+        # starts: two threads calling pipeline.process() on the same detector,
+        # classifier and tracker corrupt the tracker's dictionaries.
+        if not self._join_worker():
+            self._fail(
+                VisionAIError(
+                    "a previous inference thread is still running; refusing to start "
+                    "a second one. Close and recreate the engine."
+                )
+            )
+            return
         self._set_state(PipelineState.STARTING, "Starting")
 
         try:
@@ -201,21 +215,33 @@ class PipelineEngine:
             self._source.start()
 
         self._status.started_at = time.time()
-        self._worker.stop.clear()
-        self._worker.thread = threading.Thread(
-            target=self._run_inference, name="visionai-inference", daemon=True
+        # A fresh _Worker per run: reusing one would let start() clear the stop
+        # event of a thread that has not exited yet, resurrecting it.
+        worker = _Worker()
+        worker.thread = threading.Thread(
+            target=self._run_inference,
+            args=(worker.stop,),
+            name="visionai-inference",
+            daemon=True,
         )
-        self._worker.thread.start()
+        self._worker = worker
+        worker.thread.start()
         self._set_state(PipelineState.RUNNING, "Running")
         self._status.message = self.pipeline.expression_quality_note if self.pipeline else ""
 
-    def _run_inference(self) -> None:
+    def _run_inference(self, stop: threading.Event) -> None:
+        """The worker loop. Takes its own stop event so a new run cannot revive it."""
         interval = 1.0 / max(0.5, self.settings.pipeline.inference_fps)
         next_run = time.perf_counter()
-        while not self._worker.stop.is_set():
+        while not stop.is_set():
+            if self._state is PipelineState.ERROR:
+                # A failed source or model leaves nothing to do; spinning here
+                # burns a core and floods the log. start() can retry.
+                LOG.debug("inference worker exiting after error state")
+                return
             now = time.perf_counter()
             if now < next_run:
-                self._worker.stop.wait(min(next_run - now, interval))
+                stop.wait(min(next_run - now, interval))
                 continue
             next_run = now + interval
             if self._state is PipelineState.PAUSED:
@@ -266,6 +292,11 @@ class PipelineEngine:
         """Stop consuming frames and release the camera, keeping the worker alive."""
         if self._state is not PipelineState.RUNNING:
             return
+        # Flip the state first: the worker checks it before every read, and a
+        # worker already past that check would otherwise call read() on the
+        # source we are about to release. VideoFileSource.read() re-opens a
+        # released capture, which silently undoes the pause.
+        self._set_state(PipelineState.PAUSED, "Paused")
         if self._source is not None:
             try:
                 # Join the capture thread before touching the device; see stop().
@@ -275,7 +306,6 @@ class PipelineEngine:
                     self._source.release()
             except Exception as exc:  # noqa: BLE001
                 LOG.debug("error pausing source: %s", exc)
-        self._set_state(PipelineState.PAUSED, "Paused")
 
     def resume(self) -> None:
         if self._state is PipelineState.PAUSED:
@@ -300,9 +330,7 @@ class PipelineEngine:
             return
         self._set_state(PipelineState.STOPPING, "Stopping")
         self._worker.stop.set()
-        thread, self._worker.thread = self._worker.thread, None
-        if thread is not None and thread.is_alive():
-            thread.join(timeout=3.0)
+        joined = self._join_worker()
 
         # Order matters: a camera's capture thread must be joined before the
         # device is released. cv2.VideoCapture is not thread-safe, so closing it
@@ -317,6 +345,28 @@ class PipelineEngine:
             except Exception as exc:  # noqa: BLE001
                 LOG.debug("error releasing source: %s", exc)
         self._set_state(PipelineState.IDLE, "Stopped")
+        if not joined:
+            self._status.last_error = (
+                "the inference thread was still running when stop() returned; "
+                "closing the models underneath it is unsafe"
+            )
+
+    def _join_worker(self, timeout: float = 3.0) -> bool:
+        """Join the inference thread. True when nothing is left running.
+
+        The handle is kept when the join times out, so start() can see the
+        thread is still alive instead of launching a second one beside it.
+        """
+        thread = self._worker.thread
+        if thread is None:
+            return True
+        if thread.is_alive():
+            thread.join(timeout=timeout)
+        if thread.is_alive():
+            LOG.warning("inference thread did not stop within %.1fs", timeout)
+            return False
+        self._worker.thread = None
+        return True
 
     def latest(self) -> PipelineResult | None:
         """The most recent completed result, or ``None`` before the first frame."""
@@ -378,6 +428,12 @@ class PipelineEngine:
             return
         self._closed = True
         self.stop()
+        if not self._join_worker(timeout=5.0):
+            # Closing the models while a worker is inside process() would use a
+            # closed detector. Leaking them is the lesser evil; they are small
+            # and the process is going away.
+            LOG.error("inference thread still alive at close(); skipping pipeline.close()")
+            return
         if self._owns_pipeline and self.pipeline is not None:
             self.pipeline.close()
 

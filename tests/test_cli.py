@@ -64,6 +64,28 @@ class TestParser:
         assert args.classifier == "onnx"
         assert args.device == "cuda"
 
+    def test_sqlite_flag_before_the_subcommand(self) -> None:
+        """Regression: the documented `visionai --sqlite user list` was rejected."""
+        args = build_parser().parse_args(["--sqlite", "user", "list"])
+        assert args.sqlite is True
+        assert args.command == "user"
+
+    def test_sqlite_flag_after_the_subcommand(self) -> None:
+        args = build_parser().parse_args(["user", "--sqlite", "list"])
+        assert args.sqlite is True
+        assert args.command == "user"
+
+    def test_global_sqlite_survives_the_subparser_default(self) -> None:
+        """A subparser default must not reset the flag given before it."""
+        args = build_parser().parse_args(["--sqlite", "db", "status"])
+        assert args.sqlite is True
+
+    def test_sqlite_defaults_to_false(self) -> None:
+        assert build_parser().parse_args(["db", "status"]).sqlite is False
+
+    def test_global_sqlite_works_end_to_end(self) -> None:
+        assert run(["--no-log-file", "--sqlite", "user", "list"]) == 0
+
 
 class TestListCameras:
     def test_lists_or_explains(self, capsys: pytest.CaptureFixture) -> None:

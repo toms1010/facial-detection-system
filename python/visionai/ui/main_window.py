@@ -345,7 +345,7 @@ class MainWindow(QMainWindow):
         self.dashboard.update_overlay_only()
         if theme_changed:
             application = QApplication.instance()
-            if application is not None:
+            if isinstance(application, QApplication):
                 application.setStyleSheet(stylesheet(self._palette))
         if settings.hardware.enabled:
             self.bridge.settings = settings.hardware

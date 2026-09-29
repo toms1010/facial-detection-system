@@ -12,6 +12,7 @@ import logging
 import math
 import time
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -45,6 +46,20 @@ class FrameSource(abc.ABC):
     @property
     def frame_size(self) -> tuple[int, int]:
         return (0, 0)
+
+    def describe(self) -> dict[str, Any]:
+        """A JSON-friendly summary, used by diagnostics and the self-test.
+
+        Subclasses with more to report (a camera's resolution and backend, for
+        example) override this.
+        """
+        width, height = self.frame_size
+        return {
+            "name": self.name,
+            "display_name": self.display_name,
+            "open": self.is_open,
+            "frame_size": [width, height],
+        }
 
     def __enter__(self) -> FrameSource:
         self.open()

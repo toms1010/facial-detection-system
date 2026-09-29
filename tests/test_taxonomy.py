@@ -87,6 +87,50 @@ def test_align_scores_accepts_a_positional_sequence() -> None:
     assert aligned["sad"] == pytest.approx(0.75)
 
 
+def test_align_scores_coerces_non_string_keys() -> None:
+    """A model may hand back an enum or index key; it must not blow up."""
+    aligned = taxonomy.align_scores(
+        {taxonomy.get("happy"): 3.0, taxonomy.get("sad"): 1.0},
+        ["happy", "sad"],
+    )
+    assert aligned["happy"] == pytest.approx(0.75)
+    assert aligned["sad"] == pytest.approx(0.25)
+    assert all(isinstance(key, str) for key in aligned)
+
+
+def test_align_scores_output_keys_are_always_strings() -> None:
+    aligned = taxonomy.align_scores({0: 1.0, 1: 3.0}, ["happy", "sad"])
+    assert all(isinstance(key, str) for key in aligned)
+    assert sum(aligned.values()) == pytest.approx(1.0)
+
+
+def test_align_scores_accepts_emotion_class_labels() -> None:
+    aligned = taxonomy.align_scores(
+        [3.0, 1.0], [taxonomy.get("happy"), taxonomy.get("sad")]
+    )
+    assert aligned == {"happy": pytest.approx(0.75), "sad": pytest.approx(0.25)}
+
+
+def test_label_text_unwraps_entries_and_named_objects() -> None:
+    entry = taxonomy.get("happy")
+    assert entry is not None
+    assert taxonomy.label_text(entry) == "happy"
+    assert taxonomy.label_text(" Happy ") == " Happy "
+    assert taxonomy.label_text(7) == "7"
+
+    class Named:
+        name = "happy"
+
+    assert taxonomy.label_text(Named()) == "happy"
+
+
+def test_normalize_label_accepts_an_emotion_class() -> None:
+    entry = taxonomy.get("happy")
+    assert entry is not None
+    assert taxonomy.normalize_label(entry, ["happy", "sad"]) == "happy"
+    assert taxonomy.normalize_label(entry) == "happy"
+
+
 def test_colour_helpers_are_bgr_swapped() -> None:
     entry = taxonomy.get("happy")
     assert entry is not None

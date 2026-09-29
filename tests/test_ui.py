@@ -173,6 +173,12 @@ class TestDashboard:
         panel.set_status("Running - 30 FPS", "running")
         assert "Running" in panel.status_label.text()
 
+    def test_summary_tolerates_a_row_without_a_label(self, app) -> None:
+        """Regression: a row with no column-0 cell used to raise AttributeError."""
+        panel = DashboardPanel(DARK)
+        panel.table.setRowCount(2)
+        assert "faces=[" in panel.summary_text()
+
     def test_palette_can_be_swapped(self, app) -> None:
         panel = DashboardPanel(DARK)
         panel.set_palette(LIGHT)

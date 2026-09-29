@@ -352,14 +352,16 @@ class Settings:
 
 
 def _build_group(group_cls: type[T], payload: Any) -> T:
-    instance = group_cls()  # type: ignore[call-arg]
+    # Deserialising JSON into a dataclass is inherently dynamic, so the
+    # instance is treated as Any here rather than fighting the type checker.
+    instance: Any = group_cls()
     if not isinstance(payload, dict):
-        return instance  # type: ignore[return-value]
+        return instance
     known = {f.name for f in fields(instance)}
     for key, value in payload.items():
         if key in known:
             setattr(instance, key, value)
-    return instance  # type: ignore[return-value]
+    return instance
 
 
 def load_settings(path: Path | str | None = None) -> Settings:

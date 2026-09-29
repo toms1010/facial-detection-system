@@ -11,6 +11,7 @@ import logging
 import os
 import time
 from pathlib import Path
+from typing import Any
 
 import cv2
 import numpy as np
@@ -28,7 +29,7 @@ CASCADE_NAMES: tuple[str, ...] = (
 
 
 def _cascade_dir() -> Path:
-    getter = getattr(cv2.data, "haarcascades", None)
+    getter = getattr(getattr(cv2, "data", None), "haarcascades", None)
     if getter:
         return Path(getter)
     return Path(cv2.__file__).resolve().parent / "data"
@@ -95,7 +96,7 @@ class HaarFaceDetector(FaceDetector):
         self.min_neighbors = int(max(0, min_neighbors))
         self.min_size = int(max(16, min_size))
         self._cascade_name = cascade
-        self._cascade: cv2.CascadeClassifier | None = None
+        self._cascade: Any | None = None
         self._path: Path | None = None
         self._last_latency_ms = 0.0
         self._max_side = int(max_side)
@@ -104,7 +105,14 @@ class HaarFaceDetector(FaceDetector):
         if self._cascade is not None:
             return
         self._path = resolve_cascade_path(self._cascade_name)
-        cascade = cv2.CascadeClassifier(str(self._path))
+        factory = getattr(cv2, "CascadeClassifier", None)
+        if factory is None:
+            raise ModelLoadError(
+                "this OpenCV build does not expose CascadeClassifier; it was "
+                "removed in OpenCV 5.0. Install opencv-python<5 or use "
+                "--detector yunet"
+            )
+        cascade = factory(str(self._path))
         if cascade.empty():
             raise ModelLoadError(f"Haar cascade at {self._path} failed to parse")
         self._cascade = cascade

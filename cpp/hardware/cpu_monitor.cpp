@@ -3,8 +3,11 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
+#include <map>
 #include <thread>
+#include <vector>
 
 #include "sysfs.hpp"
 
@@ -58,6 +61,34 @@ double maxFrequencyMhz() {
     }
   }
   return best;
+}
+
+// Per-core maximum frequency in MHz, indexed by core number. Entries stay 0.0
+// where the kernel does not expose cpufreq for that core.
+std::vector<double> coreFrequenciesMhz() {
+  std::map<int, double> byIndex;
+  for (const auto& entry : sysfs::listDirectories("/sys/devices/system/cpu")) {
+    if (entry.rfind("cpu", 0) != 0) {
+      continue;
+    }
+    const int index = std::atoi(entry.c_str() + 3);
+    if (index < 0) {
+      continue;
+    }
+    const auto path = "/sys/devices/system/cpu/" + entry + "/cpufreq/cpuinfo_max_freq";
+    if (const auto khz = sysfs::parseUint(sysfs::readFirstLine(path).value_or(""))) {
+      byIndex[index] = static_cast<double>(*khz) / 1000.0;
+    }
+  }
+  std::vector<double> out;
+  if (byIndex.empty()) {
+    return out;
+  }
+  out.assign(static_cast<std::size_t>(byIndex.rbegin()->first) + 1, 0.0);
+  for (const auto& [index, mhz] : byIndex) {
+    out[static_cast<std::size_t>(index)] = mhz;
+  }
+  return out;
 }
 
 double percentage(double part, double total) {
@@ -154,7 +185,13 @@ CpuSnapshot CpuMonitor::sample() {
     }
   }
 
-  if (primed_) {
+  // A counter that went backwards (a CPU hot-unplug, a counter reset) would
+  // wrap the unsigned subtraction to ~1.8e19 and report a bogus 100%. Skip the
+  // tick instead, and re-prime from the new baseline.
+  const bool counters_advanced = primed_ && total.total() >= previousTotal_.total();
+  const auto frequencies = coreFrequenciesMhz();
+
+  if (counters_advanced) {
     const double totalDelta = static_cast<double>(total.total() - previousTotal_.total());
     const double idleDelta = static_cast<double>(total.idleAll() - previousTotal_.idleAll());
     const double busyDelta = totalDelta - idleDelta;
@@ -171,13 +208,19 @@ CpuSnapshot CpuMonitor::sample() {
     if (!previousCores_.empty() && previousCores_.size() == cores.size()) {
       snapshot.cores.reserve(cores.size());
       for (std::size_t i = 0; i < cores.size(); ++i) {
-        const double coreTotal =
-            static_cast<double>(cores[i].total() - previousCores_[i].total());
-        const double coreIdle =
-            static_cast<double>(cores[i].idleAll() - previousCores_[i].idleAll());
+        const bool core_advanced = cores[i].total() >= previousCores_[i].total();
+        const double coreTotal = core_advanced
+            ? static_cast<double>(cores[i].total() - previousCores_[i].total())
+            : 0.0;
+        const double coreIdle = core_advanced
+            ? static_cast<double>(cores[i].idleAll() - previousCores_[i].idleAll())
+            : 0.0;
         CpuCore core;
         core.index = static_cast<int>(i);
         core.usagePercent = percentage(coreTotal - coreIdle, coreTotal);
+        if (i < frequencies.size()) {
+          core.frequencyMhz = frequencies[i];
+        }
         snapshot.cores.push_back(core);
       }
     }
@@ -191,6 +234,9 @@ CpuSnapshot CpuMonitor::sample() {
     for (int i = 0; i < snapshot.coreCount; ++i) {
       CpuCore core;
       core.index = i;
+      if (static_cast<std::size_t>(i) < frequencies.size()) {
+        core.frequencyMhz = frequencies[static_cast<std::size_t>(i)];
+      }
       snapshot.cores.push_back(core);
     }
   }

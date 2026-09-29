@@ -6,6 +6,7 @@ import logging
 import time
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -97,8 +98,7 @@ class TorchScriptExpressionClassifier(ExpressionClassifier):
         return self._descriptor
 
     def predict(self, crop: np.ndarray) -> ExpressionResult:
-        if self._module is None:
-            self.load()
+        module = self._require_module()
         torch = self._torch
         assert torch is not None and self._descriptor is not None
         image = validate_frame(crop, "face crop")
@@ -106,7 +106,7 @@ class TorchScriptExpressionClassifier(ExpressionClassifier):
         tensor = torch.from_numpy(preprocess(image, self._descriptor)).to(self._device)
         try:
             with torch.inference_mode():
-                output = self._module(tensor)
+                output = module(tensor)
         except Exception as exc:  # noqa: BLE001
             raise DeviceError(f"TorchScript inference failed on {self._device}: {exc}") from exc
 
@@ -115,17 +115,27 @@ class TorchScriptExpressionClassifier(ExpressionClassifier):
         self._last_latency_ms = result.latency_ms
         return result
 
+    def _require_module(self) -> Any:
+        """Return the loaded TorchScript module, loading it on first use.
+
+        Raises rather than returning ``None`` so a use after :meth:`close` is
+        reported as a model problem instead of an ``AttributeError``.
+        """
+        if self._module is None:
+            self.load()
+        if self._module is None:
+            raise ModelMissingError("the TorchScript classifier was closed; load() it again")
+        return self._module
+
     def _as_numpy(self, output: object) -> np.ndarray:
         torch = self._torch
         assert torch is not None
         if isinstance(output, (list, tuple)):
             output = output[0]
-        if hasattr(output, "detach"):
-            output = output.detach()
-        if hasattr(output, "cpu"):
-            output = output.cpu()
-        if hasattr(output, "numpy"):
-            output = output.numpy()
+        for method in ("detach", "cpu", "numpy"):
+            step = getattr(output, method, None)
+            if callable(step):
+                output = step()
         return np.asarray(output)
 
     def _to_result(self, output: np.ndarray) -> ExpressionResult:

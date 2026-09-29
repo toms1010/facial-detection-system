@@ -174,7 +174,7 @@ class ExpressionResult:
     @classmethod
     def from_scores(
         cls,
-        scores: Mapping[str, float],
+        scores: Mapping[Any, float],
         model: str,
         is_heuristic: bool = False,
         threshold: float = 0.0,

@@ -17,7 +17,7 @@ DiskSnapshot DiskMonitor::emptySnapshot(const std::string& path) {
   return snapshot;
 }
 
-std::string DiskMonitor::resolveDevice(const std::string& path) {
+std::string DiskMonitor::resolveDevice(const std::string& path, std::string* filesystem) {
   const auto mountinfo = sysfs::readFile("/proc/self/mountinfo");
   if (!mountinfo) {
     return {};
@@ -27,7 +27,7 @@ std::string DiskMonitor::resolveDevice(const std::string& path) {
   const std::string wanted = ec ? path : target.string();
 
   std::string best;
-  std::size_t bestLength = 0;
+  bool found = false;
   for (const auto& line : sysfs::split(*mountinfo, "\n")) {
     const auto fields = sysfs::split(line, " ");
     if (fields.size() < 5) {
@@ -37,22 +37,29 @@ std::string DiskMonitor::resolveDevice(const std::string& path) {
     if (mountPoint != wanted && mountPoint != path) {
       continue;
     }
-    // Field 10 is the separator before the optional fields, so the source
-    // device is the first entry after it.
-    std::string device;
-    if (fields.size() > 10) {
-      device = fields[10];
-    } else {
-      for (std::size_t i = 10; i < fields.size(); ++i) {
-        if (fields[i] == "-" && i + 1 < fields.size()) {
-          device = fields[i + 1];
-          break;
+    // /proc/self/mountinfo layout:
+    //   0 id, 1 parent, 2 major:minor, 3 root, 4 mount point, 5 options,
+    //   then zero or more optional fields terminated by "-", then
+    //   fs type, mount source, super options.
+    // The separator's index therefore moves with the number of optional
+    // fields, so the source is always two entries after it.
+    for (std::size_t i = 6; i + 2 < fields.size(); ++i) {
+      if (fields[i] != "-") {
+        continue;
+      }
+      // The first matching line is the topmost mount; later ones are stacked
+      // underneath it.
+      if (!found) {
+        found = true;
+        best = fields[i + 2];
+        if (filesystem != nullptr) {
+          *filesystem = fields[i + 1];
         }
       }
+      break;
     }
-    if (mountPoint.size() >= bestLength) {
-      bestLength = mountPoint.size();
-      best = device;
+    if (found) {
+      break;
     }
   }
   return best;
@@ -79,7 +86,8 @@ DiskSnapshot DiskMonitor::sample(const std::string& path) {
                                static_cast<double>(snapshot.totalBytes) * 100.0,
                        0.0, 100.0)
           : 0.0;
-  snapshot.device = resolveDevice(path);
+  snapshot.filesystem = {};
+  snapshot.device = resolveDevice(path, &snapshot.filesystem);
   snapshot.available = true;
   return snapshot;
 }

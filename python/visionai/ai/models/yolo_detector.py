@@ -151,13 +151,24 @@ class YoloFaceDetector(FaceDetector):
     def uses_person_box_approximation(self) -> bool:
         return self._using_person_box
 
-    def detect(self, frame: np.ndarray) -> list[FaceDetection]:
+    def _require_model(self) -> Any:
+        """Return the loaded YOLO model, loading it on first use.
+
+        Raises rather than returning ``None`` so a use after :meth:`close` is
+        reported as a model problem instead of an ``AttributeError``.
+        """
         if self._model is None:
             self.load()
+        if self._model is None:
+            raise ModelMissingError("the YOLO detector was closed; load() it again")
+        return self._model
+
+    def detect(self, frame: np.ndarray) -> list[FaceDetection]:
+        model = self._require_model()
         image = validate_frame(frame, "frame")
         start = time.perf_counter()
         try:
-            results = self._model.predict(
+            results = model.predict(
                 image,
                 conf=self.confidence,
                 iou=self.iou,

@@ -101,9 +101,22 @@ class OnnxYoloFaceDetector(FaceDetector):
     def last_latency_ms(self) -> float:
         return self._last_latency_ms
 
+    def _require_session(self) -> Any:
+        """Return the inference session, loading it on first use.
+
+        Raises rather than returning ``None`` so a use after :meth:`close` is
+        reported as a model problem instead of an ``AttributeError``.
+        """
+        if self._session is None:
+            self.load()
+        if self._session is None:
+            raise ModelLoadError("the ONNX detector session was closed; load() it again")
+        return self._session
+
     def detect(self, frame: np.ndarray) -> list[FaceDetection]:
         if self._session is None:
             self.load()
+        session = self._require_session()
         image = validate_frame(frame, "frame")
         if image.ndim == 2:
             image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
@@ -113,7 +126,7 @@ class OnnxYoloFaceDetector(FaceDetector):
         rgb = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
         blob = np.ascontiguousarray(rgb.transpose(2, 0, 1)[None], dtype=np.float32) / 255.0
         try:
-            outputs = self._session.run(self._output_names, {self._input_name: blob})
+            outputs = session.run(self._output_names, {self._input_name: blob})
         except Exception as exc:  # noqa: BLE001
             raise InferenceError(f"ONNX inference failed via {self._provider}: {exc}") from exc
 
@@ -142,7 +155,8 @@ class OnnxYoloFaceDetector(FaceDetector):
                 class_id = int(row[5]) if array.shape[1] > 5 else 0
                 if not self._keep(class_id):
                     continue
-                box = self._to_frame(*(float(v) for v in row[:4]), scale, pad_w)
+                x1, y1, x2, y2 = (float(v) for v in row[:4])
+                box = self._to_frame(x1, y1, x2, y2, scale, pad_w)
                 box = box.clamp(frame_w, frame_h)
                 if box.width >= 8 and box.height >= 8:
                     detections.append(

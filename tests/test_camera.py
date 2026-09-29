@@ -283,3 +283,21 @@ class TestFrameSourceContract:
         source.open()
         assert source.read() is not None
         source.release()
+
+    @pytest.mark.parametrize(
+        "source_factory",
+        [lambda: SyntheticFrameSource(160, 120), lambda: open_source("none", CameraSettings())],
+    )
+    def test_describe_is_available_and_serialisable(self, source_factory) -> None:
+        """Regression: the base class had no describe(), so callers crashed."""
+        import json
+
+        source = source_factory()
+        described = source.describe()
+        assert described["name"] == source.name
+        assert described["display_name"] == source.display_name
+        assert described["open"] is False
+        source.open()
+        assert source.describe()["open"] is True
+        json.dumps(source.describe())
+        source.release()

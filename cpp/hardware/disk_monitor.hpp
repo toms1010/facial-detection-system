@@ -15,7 +15,8 @@ class DiskMonitor {
   static DiskSnapshot emptySnapshot(const std::string& path);
 
   // Extracts the source device for a mount point from /proc/self/mountinfo.
-  static std::string resolveDevice(const std::string& path);
+  // When `filesystem` is non-null it also receives the filesystem type.
+  static std::string resolveDevice(const std::string& path, std::string* filesystem = nullptr);
 };
 
 }  // namespace visionai

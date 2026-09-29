@@ -28,15 +28,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from visionai.ai.errors import ConfigError
+from visionai.ai.errors import ConfigError, VisionAIError
 
 LOG = logging.getLogger(__name__)
 
 DEFAULT_CHARSET = "utf8mb4"
 
 
-class DatabaseError(RuntimeError):
-    """Any database failure, so callers need not import a driver."""
+class DatabaseError(VisionAIError, RuntimeError):
+    """Any database failure, so callers need not import a driver.
+
+    Also a :class:`VisionAIError` so the CLI reports a connection failure as a
+    clean message instead of a traceback, and a ``RuntimeError`` so existing
+    ``except RuntimeError`` handlers keep working.
+    """
 
 
 class ConnectionError_(DatabaseError):
@@ -143,23 +148,30 @@ class Database:
         self.dialect = "sqlite" if self.config.is_sqlite else "mysql"
         self._local = threading.local()
         self._lock = threading.Lock()
+        self._connections: list[Any] = []
         self._closed = False
         self._rowcount = 0
 
     def connect(self) -> Any:
-        if self._closed:
-            raise DatabaseError("database has been closed")
         existing = getattr(self._local, "connection", None)
         if existing is not None:
             return existing
-        connection = self._open()
+        # The whole open-and-publish is under the lock so close() cannot set
+        # _closed between the check and the assignment, which would install a
+        # live connection on an already-closed Database.
         with self._lock:
+            if self._closed:
+                raise DatabaseError("database has been closed")
             existing = getattr(self._local, "connection", None)
             if existing is not None:
-                self._close_one(connection)
                 return existing
+            connection = self._open()
+            if self._closed:  # defensive: close() may have run during _open()
+                self._close_one(connection)
+                raise DatabaseError("database has been closed")
             self._local.connection = connection
-        return connection
+            self._connections.append(connection)
+            return connection
 
     def _open(self) -> Any:
         if self.dialect == "sqlite":
@@ -167,8 +179,14 @@ class Database:
         return self._open_mysql()
 
     def _open_sqlite(self) -> sqlite3.Connection:
+        path = self.config.sqlite_path
+        if path is None:
+            raise DatabaseError(
+                "the sqlite dialect was selected without a sqlite_path; set "
+                "VISIONAI_SQLITE_PATH or provide a database configuration"
+            )
         connection = sqlite3.connect(
-            self.config.sqlite_path,
+            path,
             timeout=self.config.connect_timeout,
             check_same_thread=False,
             isolation_level=None,
@@ -314,12 +332,19 @@ class Database:
             connection.close()
 
     def close(self) -> None:
+        """Close every connection this object handed out, on any thread.
+
+        Connections are cached per thread, so closing only the caller's would
+        leave the others open and permanently unreachable: connect() refuses to
+        run once ``_closed`` is set.
+        """
         with self._lock:
-            connection = getattr(self._local, "connection", None)
-            if connection is not None:
-                self._close_one(connection)
-                self._local.connection = None
             self._closed = True
+            connections = list(self._connections)
+            self._connections.clear()
+        for connection in connections:
+            self._close_one(connection)
+        self._local.connection = None
 
     def ping(self) -> bool:
         try:

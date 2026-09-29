@@ -154,6 +154,24 @@ class TestYuNetDetector:
         detector.load()
         assert detector.describe()["weights"]
 
+    def test_detect_after_close_reloads_transparently(self, frame: np.ndarray) -> None:
+        """A use after close() must reload rather than dereference None."""
+        detector = YuNetFaceDetector(confidence=0.3)
+        assert isinstance(detector.detect(frame), list)
+        detector.close()
+        assert not detector.is_ready
+        assert isinstance(detector.detect(frame), list)
+        assert detector.is_ready
+        detector.close()
+
+    def test_ensure_input_size_after_close_does_not_crash(self) -> None:
+        detector = YuNetFaceDetector()
+        detector.load()
+        detector.close()
+        detector._ensure_input_size(640, 480)
+        assert detector.is_ready
+        detector.close()
+
 
 class TestCascadeResolution:
     def test_resolves_a_bundled_cascade(self) -> None:

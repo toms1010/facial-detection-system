@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # pragma: no cover - Qt is an optional dependency
+    from visionai.ui.app import create_window, has_display, qt_available, run
+    from visionai.ui.headless import render_text_frame, run_headless
 
 __all__ = [
     "create_window",

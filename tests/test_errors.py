@@ -64,6 +64,21 @@ class TestExceptionHierarchy:
     def test_messages_survive(self) -> None:
         assert str(ModelMissingError("detail here")) == "detail here"
 
+    def test_database_errors_descend_from_the_base(self) -> None:
+        """Regression: DatabaseError was a bare RuntimeError, so the CLI
+        printed a traceback instead of a clean error message."""
+        from visionai.database.driver import ConnectionError_, DatabaseError
+
+        assert issubclass(DatabaseError, VisionAIError)
+        assert issubclass(ConnectionError_, DatabaseError)
+        assert issubclass(DatabaseError, RuntimeError)
+
+    def test_database_errors_are_caught_generically(self) -> None:
+        from visionai.database.driver import ConnectionError_
+
+        with pytest.raises(VisionAIError):
+            raise ConnectionError_("server refused the connection")
+
 
 class TestCameraErrors:
     def test_invalid_index(self) -> None:

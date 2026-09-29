@@ -2,11 +2,27 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <string>
 
 #include "hardware/monitor.hpp"
 
 namespace {
+
+// The CPU and network monitors report *deltas* against a baseline captured on
+// their previous sample, so they must be primed before they produce numbers.
+// A monitor constructed per call would therefore always report 0% CPU and
+// 0 B/s. One process-wide monitor, guarded by a mutex, keeps the baselines
+// alive between calls and makes the ctypes backend behave like pybind11.
+std::mutex& monitorMutex() {
+  static std::mutex instance;
+  return instance;
+}
+
+visionai::HardwareMonitor& sharedMonitor() {
+  static visionai::HardwareMonitor instance;
+  return instance;
+}
 
 char* duplicate(const std::string& text) {
   char* buffer = static_cast<char*>(std::malloc(text.size() + 1));
@@ -49,6 +65,7 @@ std::string cpuJson(const visionai::CpuSnapshot& cpu) {
   out += ",\"idle_percent\":" + number(cpu.idlePercent);
   out += ",\"iowait_percent\":" + number(cpu.iowaitPercent);
   out += ",\"frequency_mhz\":" + number(cpu.frequencyMhz);
+  out += ",\"max_frequency_mhz\":" + number(cpu.maxFrequencyMhz);
   out += ",\"load_average_1\":" + number(cpu.loadAverage1);
   out += ",\"load_average_5\":" + number(cpu.loadAverage5);
   out += ",\"load_average_15\":" + number(cpu.loadAverage15);
@@ -58,7 +75,8 @@ std::string cpuJson(const visionai::CpuSnapshot& cpu) {
   for (std::size_t i = 0; i < cpu.cores.size(); ++i) {
     if (i > 0) out += ",";
     out += "{\"index\":" + std::to_string(cpu.cores[i].index);
-    out += ",\"usage_percent\":" + number(cpu.cores[i].usagePercent) + "}";
+    out += ",\"usage_percent\":" + number(cpu.cores[i].usagePercent);
+    out += ",\"frequency_mhz\":" + number(cpu.cores[i].frequencyMhz) + "}";
   }
   out += "]}";
   return out;
@@ -90,7 +108,10 @@ std::string temperatureJson(const visionai::TemperatureSnapshot& temperature) {
   for (std::size_t i = 0; i < temperature.sensors.size(); ++i) {
     if (i > 0) out += ",";
     out += "{\"label\":" + quote(temperature.sensors[i].label);
-    out += ",\"celsius\":" + number(temperature.sensors[i].celsius) + "}";
+    out += ",\"path\":" + quote(temperature.sensors[i].path);
+    out += ",\"celsius\":" + number(temperature.sensors[i].celsius);
+    out += ",\"critical_celsius\":" + number(temperature.sensors[i].criticalCelsius);
+    out += ",\"max_celsius\":" + number(temperature.sensors[i].maxCelsius) + "}";
   }
   out += "]}";
   return out;
@@ -101,6 +122,7 @@ std::string diskJson(const visionai::DiskSnapshot& disk) {
   out += disk.available ? "true" : "false";
   out += ",\"mount_point\":" + quote(disk.mountPoint);
   out += ",\"device\":" + quote(disk.device);
+  out += ",\"filesystem\":" + quote(disk.filesystem);
   out += ",\"total_bytes\":" + std::to_string(disk.totalBytes);
   out += ",\"used_bytes\":" + std::to_string(disk.usedBytes);
   out += ",\"free_bytes\":" + std::to_string(disk.freeBytes);
@@ -123,6 +145,10 @@ std::string networkJson(const visionai::NetworkSnapshot& network) {
     out += ",\"tx_bytes\":" + std::to_string(iface.txBytes);
     out += ",\"rx_bytes_per_second\":" + number(iface.rxBytesPerSecond);
     out += ",\"tx_bytes_per_second\":" + number(iface.txBytesPerSecond);
+    out += ",\"rx_packets_per_second\":" + number(iface.rxPacketsPerSecond);
+    out += ",\"tx_packets_per_second\":" + number(iface.txPacketsPerSecond);
+    out += ",\"errors\":" + std::to_string(iface.errors);
+    out += ",\"drops\":" + std::to_string(iface.drops);
     out += ",\"is_up\":" + std::string(iface.isUp ? "true" : "false");
     out += "}";
   }
@@ -135,7 +161,8 @@ std::string gpusJson(const std::vector<visionai::GpuSnapshot>& gpus) {
   for (std::size_t i = 0; i < gpus.size(); ++i) {
     if (i > 0) out += ",";
     const auto& gpu = gpus[i];
-    out += "{\"vendor\":" + quote(gpu.vendor);
+    out += "{\"present\":" + std::string(gpu.present ? "true" : "false");
+    out += ",\"vendor\":" + quote(gpu.vendor);
     out += ",\"name\":" + quote(gpu.name);
     out += ",\"usage_percent\":" + number(gpu.usagePercent);
     out += ",\"memory_usage_percent\":" + number(gpu.memoryUsagePercent);
@@ -143,7 +170,11 @@ std::string gpusJson(const std::vector<visionai::GpuSnapshot>& gpus) {
     out += ",\"memory_total_bytes\":" + std::to_string(gpu.memoryTotalBytes);
     out += ",\"temperature_celsius\":";
     out += gpu.temperatureCelsius.has_value() ? number(*gpu.temperatureCelsius) : "null";
+    out += ",\"power_watts\":";
+    out += gpu.powerWatts.has_value() ? number(*gpu.powerWatts) : "null";
+    out += ",\"index\":" + std::to_string(gpu.index);
     out += ",\"source\":" + quote(gpu.source);
+    out += ",\"detail\":" + quote(gpu.detail);
     out += "}";
   }
   out += "]";
@@ -157,6 +188,7 @@ std::string systemJson(const visionai::SystemSnapshot& system) {
   out += ",\"distribution\":" + quote(system.distribution);
   out += ",\"uptime_seconds\":" + number(system.uptimeSeconds);
   out += ",\"architecture\":" + quote(system.architecture);
+  out += ",\"process_count\":" + std::to_string(system.processCount);
   out += "}";
   return out;
 }
@@ -167,7 +199,8 @@ extern "C" {
 
 char* visionai_snapshot_json(const char* disk_path, const char* network_interface) {
   try {
-    visionai::HardwareMonitor monitor;
+    std::lock_guard<std::mutex> lock(monitorMutex());
+    auto& monitor = sharedMonitor();
     monitor.setDiskPath(disk_path != nullptr && disk_path[0] != '\0' ? disk_path : "/");
     if (network_interface != nullptr) {
       monitor.setNetworkInterface(network_interface);
@@ -195,7 +228,8 @@ char* visionai_subsystem_json(const char* subsystem, const char* argument) {
     return duplicate("{\"error\":\"no subsystem requested\"}");
   }
   try {
-    visionai::HardwareMonitor monitor;
+    std::lock_guard<std::mutex> lock(monitorMutex());
+    auto& monitor = sharedMonitor();
     const std::string name(subsystem);
     if (name == "cpu") return duplicate(cpuJson(monitor.sampleCpu()));
     if (name == "memory") return duplicate(memoryJson(monitor.sampleMemory()));

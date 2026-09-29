@@ -15,6 +15,7 @@ import contextlib
 import logging
 import time
 from pathlib import Path
+from typing import Any
 
 import cv2
 import numpy as np
@@ -58,8 +59,10 @@ def resolve_yunet_path(name: str | None = None) -> Path:
 
 def _quiet_opencv() -> None:
     """Silence OpenCV's C++ log, which warns on every DNN target request."""
-    with contextlib.suppress(Exception):
-        cv2.setLogLevel(2)
+    set_level = getattr(cv2, "setLogLevel", None)
+    if callable(set_level):
+        with contextlib.suppress(Exception):
+            set_level(2)
     with contextlib.suppress(Exception):
         cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
 
@@ -127,8 +130,7 @@ class YuNetFaceDetector(FaceDetector):
         return self._last_latency_ms
 
     def detect(self, frame: np.ndarray) -> list[FaceDetection]:
-        if self._detector is None:
-            self.load()
+        detector = self._require_detector()
         image = validate_frame(frame, "frame")
         if image.ndim == 2:
             image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
@@ -138,7 +140,7 @@ class YuNetFaceDetector(FaceDetector):
         self._ensure_input_size(width, height)
 
         try:
-            _, faces = self._detector.detect(image)
+            _, faces = detector.detect(image)
         except cv2.error as exc:
             raise InferenceError(f"YuNet inference failed: {exc}") from exc
 
@@ -159,12 +161,24 @@ class YuNetFaceDetector(FaceDetector):
         self._last_latency_ms = (time.perf_counter() - start) * 1000.0
         return detections
 
+    def _require_detector(self) -> Any:
+        """Return the loaded network, loading it on first use.
+
+        Raises rather than returning ``None`` so a use after :meth:`close` is
+        reported as an inference problem instead of an ``AttributeError``.
+        """
+        if self._detector is None:
+            self.load()
+        if self._detector is None:
+            raise InferenceError("the YuNet detector was closed; load() it again")
+        return self._detector
+
     def _ensure_input_size(self, width: int, height: int) -> None:
         """YuNet rejects frames whose size differs from the configured input."""
         size = (width, height)
         if size == self._last_size:
             return
-        self._detector.setInputSize(size)
+        self._require_detector().setInputSize(size)
         self._last_size = size
 
     def close(self) -> None:

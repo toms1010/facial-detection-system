@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from typing import Any
 
 ESTIMATE_PREFIX = "Detected facial expression"
 DISCLAIMER = (
@@ -120,8 +121,24 @@ def all_classes() -> tuple[EmotionClass, ...]:
     return PRIMARY_CLASSES + EXTENDED_CLASSES
 
 
-def get(name: str) -> EmotionClass | None:
-    key = str(name).strip().lower()
+def label_text(raw: object) -> str:
+    """Reduce anything a model might return as a key to a lookup string.
+
+    :class:`EmotionClass` is a plain class, so ``str()`` on one yields a repr
+    like ``EmotionClass(name='happy', ...)``. Taking ``.name`` keeps labels
+    canonical no matter whether the caller passed a name, an entry, an enum or
+    a bare index.
+    """
+    if isinstance(raw, EmotionClass):
+        return raw.name
+    name = getattr(raw, "name", None)
+    if isinstance(name, str) and name:
+        return name
+    return str(raw)
+
+
+def get(name: object) -> EmotionClass | None:
+    key = label_text(name).strip().lower()
     return _BY_NAME.get(LABEL_ALIASES.get(key, key))
 
 
@@ -147,8 +164,12 @@ def class_names(classes: Iterable[EmotionClass] | None = None) -> tuple[str, ...
     return tuple(c.name for c in (classes or PRIMARY_CLASSES))
 
 
-def normalize_label(raw: str, allowed: Iterable[str] | None = None) -> str | None:
-    """Map a raw model label onto one of ``allowed`` class names."""
+def normalize_label(raw: object, allowed: Iterable[str] | None = None) -> str | None:
+    """Map a raw model label onto one of ``allowed`` class names.
+
+    ``raw`` may be a name, an :class:`EmotionClass`, or any index-like value;
+    see :func:`label_text`.
+    """
     if allowed is not None:
         allowed_set = {str(a).strip().lower() for a in allowed}
         if not allowed_set:
@@ -156,7 +177,7 @@ def normalize_label(raw: str, allowed: Iterable[str] | None = None) -> str | Non
         entry = get(raw)
         if entry is not None and entry.name in allowed_set:
             return entry.name
-        key = str(raw).strip().lower()
+        key = label_text(raw).strip().lower()
         if key in allowed_set:
             return key
         alias = LABEL_ALIASES.get(key)
@@ -164,23 +185,25 @@ def normalize_label(raw: str, allowed: Iterable[str] | None = None) -> str | Non
             return alias
         return None
     entry = get(raw)
-    return entry.name if entry is not None else str(raw).strip().lower() or None
+    return entry.name if entry is not None else label_text(raw).strip().lower() or None
 
 
 def align_scores(
-    scores: Mapping[str, float] | Iterable[float], labels: Iterable[str]
+    scores: Mapping[Any, float] | Iterable[float], labels: Iterable[Any]
 ) -> dict[str, float]:
     """Produce a normalised score mapping keyed by canonical class names.
 
     Accepts either a label->score mapping or a positional sequence aligned with
     ``labels``. Folds aliases (for example ``anger`` into ``angry``) and rescales
-    so the values sum to 1.0.
+    so the values sum to 1.0. Keys and labels may be names or
+    :class:`EmotionClass` entries; the result is always keyed by plain strings.
     """
-    label_list = [str(label) for label in labels]
+    label_list = [label_text(label) for label in labels]
     if isinstance(scores, Mapping):
         raw: dict[str, float] = {}
         for key, value in scores.items():
-            canonical = normalize_label(key, label_list) or str(key).strip().lower()
+            label = label_text(key)
+            canonical = normalize_label(label, label_list) or label.strip().lower()
             raw[canonical] = raw.get(canonical, 0.0) + float(value)
     else:
         values = list(scores)

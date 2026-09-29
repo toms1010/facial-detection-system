@@ -317,6 +317,58 @@ class TestEngine:
         assert engine.latest() is None
         engine.close()
 
+    def test_describe_works_once_a_source_is_open(self, settings: Settings) -> None:
+        """Regression: FrameSource had no describe(), so this raised."""
+        engine = PipelineEngine(settings, autostart_models=False)
+        try:
+            engine.open_source("synthetic")
+            described = engine.describe()
+            assert isinstance(described["source"], dict)
+            assert described["source"]["name"] == "synthetic"
+        finally:
+            engine.close()
+
+    def test_describe_is_serialisable_with_an_open_source(self, settings: Settings) -> None:
+        import json
+
+        engine = PipelineEngine(settings, autostart_models=False)
+        try:
+            engine.open_source("synthetic")
+            json.dumps(engine.describe())
+        finally:
+            engine.close()
+
+    def test_describe_before_open_source_has_none(self, settings: Settings) -> None:
+        engine = PipelineEngine(settings, autostart_models=False)
+        try:
+            assert engine.describe()["source"] is None
+        finally:
+            engine.close()
+
+    def test_blank_source_spec_falls_back_to_the_camera(
+        self, settings: Settings
+    ) -> None:
+        """Regression: an empty spec used to be stored as a bare ``str``."""
+        from visionai.camera.frame_source import FrameSource
+
+        engine = PipelineEngine(settings, autostart_models=False)
+        try:
+            for blank in ("", "   "):
+                resolved = engine.open_source(blank)
+                assert isinstance(resolved, FrameSource)
+                assert engine.describe()["source"] is not None
+        finally:
+            engine.close()
+
+    def test_source_spec_is_stripped_before_building(self, settings: Settings) -> None:
+        from visionai.camera.frame_source import SyntheticFrameSource
+
+        engine = PipelineEngine(settings, autostart_models=False)
+        try:
+            assert isinstance(engine.open_source("  synthetic  "), SyntheticFrameSource)
+        finally:
+            engine.close()
+
     def test_listeners_are_notified(self, settings: Settings) -> None:
         seen: list[int] = []
         engine = PipelineEngine(settings, autostart_models=False)

@@ -7,6 +7,7 @@
 //         exposes no busy percentage, in which case it is reported as absent.
 #pragma once
 
+#include <chrono>
 #include <optional>
 #include <string>
 #include <vector>
@@ -28,6 +29,10 @@ class GpuMonitor {
   static bool nvidiaDriverPresent();
   static bool nvidiaSmiOnPath();
 
+  // How long a cached nvidia-smi answer is reused for. Spawning nvidia-smi
+  // costs hundreds of milliseconds, far too slow for a one-second tick.
+  static constexpr std::chrono::seconds kNvidiaCacheFor{5};
+
   const std::vector<GpuSnapshot>& last() const { return last_; }
 
  private:
@@ -36,6 +41,9 @@ class GpuMonitor {
   bool nvidiaUsable_ = false;
   bool nvidiaProbed_ = false;
   std::vector<GpuSnapshot> last_;
+  std::vector<GpuSnapshot> nvidiaCached_;
+  bool nvidiaCachedValid_ = false;
+  std::chrono::steady_clock::time_point nvidiaCachedAt_{};
 };
 
 }  // namespace visionai

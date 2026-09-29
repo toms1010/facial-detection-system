@@ -7,7 +7,11 @@ from this package. The re-exports here are therefore lazy so that importing
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # pragma: no cover - import cycle broken for type checkers only
+    from visionai.pipeline.engine import PipelineEngine, PipelineState
+    from visionai.pipeline.stats import PerformanceReport, PipelineStats
 
 __all__ = ["PerformanceReport", "PipelineEngine", "PipelineState", "PipelineStats"]
 

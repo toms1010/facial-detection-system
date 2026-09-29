@@ -203,5 +203,8 @@ class DashboardPanel(QWidget):
 
     def summary_text(self) -> str:
         """Text used by the UI tests to assert the panel updated."""
-        rows = [self.table.item(r, 0).text() for r in range(self.table.rowCount())]
+        rows = []
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            rows.append("" if item is None else item.text())
         return f"{self.tile_fps.text()} fps | {self.tile_latency.text()} | faces={rows}"

@@ -62,8 +62,15 @@ SystemSnapshot HardwareMonitor::sampleSystem() {
     std::string line;
     std::getline(processes, line);
     const auto fields = sysfs::split(line, " ");
-    if (fields.size() > 3 && fields[3].find('/') != std::string::npos) {
-      snapshot.processCount = static_cast<int>(sysfs::parseUint(fields[3]).value_or(0));
+    if (fields.size() > 3) {
+      // fields[3] is "running/total"; the total is what callers want.
+      const std::string& runningTotal = fields[3];
+      const auto slash = runningTotal.find('/');
+      const auto& target = slash == std::string::npos ? runningTotal
+                                                      : runningTotal.substr(slash + 1);
+      if (const auto total = sysfs::parseUint(target)) {
+        snapshot.processCount = static_cast<int>(*total);
+      }
     }
   }
   return snapshot;

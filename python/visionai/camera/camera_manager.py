@@ -167,7 +167,9 @@ class CameraManager(FrameSource):
         height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)) or self.settings.height
         self._actual_size = (width, height)
         self._capture_start = time.perf_counter()
-        self._stop.clear()
+        # The stop event is owned by start(), which installs a fresh one per
+        # run. Clearing it here would revive a capture thread from a previous
+        # run that has not exited yet.
         LOG.info(
             "camera %s open at %dx%d requested_fps=%d backend=%s",
             target,
@@ -264,13 +266,21 @@ class CameraManager(FrameSource):
     def start(self) -> None:
         """Run capture on a daemon thread publishing the newest frame only."""
         if self._thread is not None and self._thread.is_alive():
+            # Never run two readers on one VideoCapture; a previous thread that
+            # outlived its stop() would still be inside read().
+            LOG.warning("capture thread still alive; not starting a second one")
             return
         self.open()
-        self._stop.clear()
-        self._thread = threading.Thread(target=self._run, name="camera-capture", daemon=True)
+        # A fresh event per run: clearing a shared one would revive a thread
+        # from a previous run that has not exited yet.
+        stop = threading.Event()
+        self._stop = stop
+        self._thread = threading.Thread(
+            target=self._run, args=(stop,), name="camera-capture", daemon=True
+        )
         self._thread.start()
 
-    def _run(self) -> None:
+    def _run(self, stop: threading.Event) -> None:
         warmup = max(0, self.settings.warmup_frames)
         for _ in range(warmup):
             try:
@@ -278,7 +288,7 @@ class CameraManager(FrameSource):
             except CameraError as exc:
                 LOG.debug("warmup frame failed: %s", exc)
                 break
-        while not self._stop.is_set():
+        while not stop.is_set():
             try:
                 frame = self._read_once()
             except CameraError as exc:
@@ -308,11 +318,16 @@ class CameraManager(FrameSource):
         stopped first, because closing a cv2.VideoCapture while another thread
         is inside read() is a use-after-free.
         """
-        thread = self._thread
-        if thread is not None and thread.is_alive():
+        if self._thread is not None and self._thread.is_alive():
             self._stop.set()
-            thread.join(timeout=2.0)
+            self._thread.join(timeout=2.0)
+        if self._thread is not None and not self._thread.is_alive():
+            # Only forget the handle once it really exited, so a later start()
+            # can see it is still running instead of opening a second reader.
             self._thread = None
+        elif self._thread is not None:
+            LOG.warning("capture thread did not stop; leaving the device open")
+            return
         self._is_open = False
         if self._capture is not None:
             try:
@@ -329,9 +344,8 @@ class CameraManager(FrameSource):
     def stop(self) -> None:
         """Stop the capture thread, then release the device."""
         self._stop.set()
-        thread, self._thread = self._thread, None
-        if thread is not None and thread.is_alive():
-            thread.join(timeout=2.0)
+        # release() performs the join that keeps the capture from being freed
+        # under a live reader, so the handle must still be set when it runs.
         self.release()
 
     @property

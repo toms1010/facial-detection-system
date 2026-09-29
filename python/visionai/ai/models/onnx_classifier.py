@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -103,12 +104,13 @@ class OnnxExpressionClassifier(ExpressionClassifier):
     def predict(self, crop: np.ndarray) -> ExpressionResult:
         if self._session is None:
             self.load()
+        session = self._require_session()
         assert self._descriptor is not None
         image = validate_frame(crop, "face crop")
         start = time.perf_counter()
         tensor = preprocess(image, self._descriptor)
         try:
-            outputs = self._session.run([self._output_name], {self._input_name: tensor})
+            outputs = session.run([self._output_name], {self._input_name: tensor})
         except Exception as exc:  # noqa: BLE001
             raise InferenceError(f"ONNX expression inference failed: {exc}") from exc
 
@@ -116,6 +118,20 @@ class OnnxExpressionClassifier(ExpressionClassifier):
         result.latency_ms = (time.perf_counter() - start) * 1000.0
         self._last_latency_ms = result.latency_ms
         return result
+
+    def _require_session(self) -> Any:
+        """Return the inference session, loading it on first use.
+
+        Raises rather than returning ``None`` so a use after :meth:`close` is
+        reported as a model problem instead of an ``AttributeError``.
+        """
+        if self._session is None:
+            self.load()
+        if self._session is None:
+            raise ModelMissingError(
+                "the ONNX expression session was closed; load() it again"
+            )
+        return self._session
 
     def _to_result(self, output: np.ndarray) -> ExpressionResult:
         assert self._descriptor is not None

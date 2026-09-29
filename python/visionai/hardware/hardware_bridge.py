@@ -286,24 +286,36 @@ class HardwareBridge:
     def start(self) -> None:
         """Begin sampling in the background."""
         if self._thread is not None and self._thread.is_alive():
+            # A previous sampler that outlived its stop() must not be joined by a
+            # second one; Settings changes restart the bridge repeatedly.
+            LOG.warning("hardware sampler still alive; not starting a second one")
             return
-        self._stop.clear()
-        self._thread = threading.Thread(target=self._run, name="hardware-monitor", daemon=True)
+        # A fresh event per run, so clearing it cannot revive a thread that has
+        # not exited yet.
+        stop = threading.Event()
+        self._stop = stop
+        self._thread = threading.Thread(
+            target=self._run, args=(stop,), name="hardware-monitor", daemon=True
+        )
         self._thread.start()
 
-    def _run(self) -> None:
-        while not self._stop.is_set():
+    def _run(self, stop: threading.Event) -> None:
+        while not stop.is_set():
             try:
                 self.sample()
             except SensorUnavailableError as exc:
                 LOG.debug("hardware sample skipped: %s", exc)
-            self._stop.wait(self.settings.interval)
+            stop.wait(self.settings.interval)
 
     def stop(self) -> None:
         self._stop.set()
-        thread, self._thread = self._thread, None
+        thread = self._thread
         if thread is not None and thread.is_alive():
             thread.join(timeout=2.0)
+        # Only forget the handle once it really exited, so start() can see a
+        # still-running sampler instead of launching a second one.
+        if thread is not None and not thread.is_alive():
+            self._thread = None
 
     def report_lines(self) -> list[str]:
         """The exact label/value lines the Hardware panel renders."""

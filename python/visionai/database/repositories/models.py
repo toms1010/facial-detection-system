@@ -468,7 +468,7 @@ class TestRunRepository(Repository):
         if unknown:
             raise ValidationError(f"unknown test metrics: {sorted(unknown)}")
         assignments = ", ".join(f"{field} = %s" for field in self.METRIC_FIELDS)
-        params = [metrics.get(field) for field in self.METRIC_FIELDS]
+        params: list[Any] = [metrics.get(field) for field in self.METRIC_FIELDS]
         params.append(RUN_COMPLETED)
         params.append(now())
         params.append(run_id)

@@ -1,6 +1,7 @@
 #include "gpu_monitor.hpp"
 
 #include <array>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 
@@ -178,15 +179,25 @@ std::vector<GpuSnapshot> GpuMonitor::sample() {
   std::vector<GpuSnapshot> gpus;
 
   // Spawning nvidia-smi costs hundreds of milliseconds, which is far too slow
-  // for a per-second telemetry tick. Probe once, then reuse the answer.
+  // for a per-second telemetry tick. Probe once, then reuse the answer for a
+  // few seconds between spawns.
   if (!nvidiaProbed_) {
     nvidiaProbed_ = true;
     nvidiaUsable_ = nvidiaDriverPresent() && nvidiaSmiOnPath();
   }
   if (nvidiaUsable_) {
-    if (const auto output = readNvidiaSmi()) {
-      gpus = parseNvidiaSmi(*output);
+    const auto now = std::chrono::steady_clock::now();
+    const bool stale = !nvidiaCachedValid_ ||
+                       (now - nvidiaCachedAt_) >= GpuMonitor::kNvidiaCacheFor;
+    if (stale) {
+      nvidiaCached_.clear();
+      if (const auto output = readNvidiaSmi()) {
+        nvidiaCached_ = parseNvidiaSmi(*output);
+      }
+      nvidiaCachedValid_ = true;
+      nvidiaCachedAt_ = now;
     }
+    gpus = nvidiaCached_;
   }
 
   if (gpus.empty()) {

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from visionai.database.driver import (
     Database,
@@ -14,6 +14,9 @@ from visionai.database.driver import (
 )
 from visionai.database.migrator import Migrator, apply_all, require_up_to_date
 from visionai.database.seed import seed_reference_data
+
+if TYPE_CHECKING:  # pragma: no cover - resolved lazily at runtime
+    from visionai.database.repositories import Repository, open_repositories
 
 __all__ = [
     "Database",

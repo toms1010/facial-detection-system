@@ -58,6 +58,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--no-log-file", action="store_true", help="do not write a log file"
     )
+    # Also accepted after the subcommand ("visionai db --sqlite"). The subparser
+    # copy suppresses its default so it cannot clobber this value.
+    parser.add_argument(
+        "--sqlite",
+        action="store_true",
+        help="use a local throwaway store instead of MySQL (for development)",
+    )
 
     subparsers = parser.add_subparsers(dest="command")
 
@@ -153,9 +160,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _add_db_arguments(parser: argparse.ArgumentParser) -> None:
+    # SUPPRESS, not False: a subparser default would overwrite a global
+    # `visionai --sqlite <command>` that was parsed before the subcommand.
     parser.add_argument(
         "--sqlite",
         action="store_true",
+        default=argparse.SUPPRESS,
         help="use a local throwaway store instead of MySQL (for development)",
     )
 
