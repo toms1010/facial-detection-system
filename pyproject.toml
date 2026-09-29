@@ -1,0 +1,96 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "linux-ai-vision"
+version = "0.1.0"
+description = "Linux desktop real-time facial detection and AI-estimated facial expression classification with native hardware monitoring"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "linux-ai-vision contributors" }]
+keywords = ["linux", "computer-vision", "yolo", "opencv", "emotion", "pybind11", "qt"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: X11 Applications :: Qt",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: C++",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Image Recognition",
+]
+
+dependencies = [
+  "numpy>=1.24",
+  "opencv-python-headless>=4.8",
+]
+
+[project.optional-dependencies]
+qt = ["PySide6-Essentials>=6.5"]
+ai = ["ultralytics>=8.1", "torch>=2.0"]
+onnx = ["onnxruntime>=1.16"]
+dev = [
+  "pytest>=7.4",
+  "pytest-cov>=4.1",
+  "ruff>=0.5",
+  "pybind11>=2.11",
+]
+all = [
+  "PySide6-Essentials>=6.5",
+  "ultralytics>=8.1",
+  "torch>=2.0",
+  "onnxruntime>=1.16",
+]
+
+[project.scripts]
+visionai = "visionai.main:main"
+
+[project.urls]
+Documentation = "https://github.com/example/linux-ai-vision/tree/main/docs"
+Source = "https://github.com/example/linux-ai-vision"
+
+[tool.setuptools]
+package-dir = { "" = "python" }
+
+[tool.setuptools.packages.find]
+where = ["python"]
+include = ["visionai*"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+  "slow: long running performance or model tests",
+  "requires_ai: needs torch/ultralytics installed",
+  "requires_onnx: needs onnxruntime installed",
+  "requires_qt: needs PySide6 installed",
+  "requires_native: needs the compiled C++ layer",
+  "camera: needs a real camera device",
+]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["python", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RET", "ARG", "PTH"]
+ignore = ["E501", "B008", "SIM108", "RET504", "ARG002"]
+
+[tool.ruff.lint.per-file-ignores]
+# F821: ruff cannot resolve pytest fixture names injected by argument.
+# ARG001: fake backends in tests intentionally ignore their arguments.
+# B017/SIM105: broad assertion and suppression style reads better in tests.
+"tests/*" = ["ARG", "SIM117", "F821", "B017", "SIM105"]
+# These modules read procfs/sysfs directly; that is the whole point of them.
+"python/visionai/hardware/python_backend.py" = ["PTH"]
+# The CLI dispatch table calls every handler with the same (args, settings) pair,
+# so a handler that needs only one of them leaves the other unused.
+"python/visionai/main.py" = ["ARG001"]
+
+[tool.ruff.format]
+quote-style = "double"

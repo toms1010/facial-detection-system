@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Linux AI Vision
+GenericName=Facial Expression Estimation
+Comment=Real-time face detection with AI-estimated facial expression labels
+Exec=visionai run --start
+Icon=applications-graphics
+Terminal=false
+Categories=Graphics;Development;Science;
+Keywords=face;detection;computer-vision;ai;camera;
+StartupNotify=true

@@ -1,0 +1,38 @@
+Metadata-Version: 2.4
+Name: linux-ai-vision
+Version: 0.1.0
+Summary: Linux desktop real-time facial detection and AI-estimated facial expression classification with native hardware monitoring
+Author: linux-ai-vision contributors
+License: MIT
+Project-URL: Documentation, https://github.com/example/linux-ai-vision/tree/main/docs
+Project-URL: Source, https://github.com/example/linux-ai-vision
+Keywords: linux,computer-vision,yolo,opencv,emotion,pybind11,qt
+Classifier: Development Status :: 4 - Beta
+Classifier: Environment :: X11 Applications :: Qt
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: POSIX :: Linux
+Classifier: Programming Language :: C++
+Classifier: Programming Language :: Python :: 3
+Classifier: Topic :: Scientific/Engineering :: Image Recognition
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: numpy>=1.24
+Requires-Dist: opencv-python-headless>=4.8
+Provides-Extra: qt
+Requires-Dist: PySide6-Essentials>=6.5; extra == "qt"
+Provides-Extra: ai
+Requires-Dist: ultralytics>=8.1; extra == "ai"
+Requires-Dist: torch>=2.0; extra == "ai"
+Provides-Extra: onnx
+Requires-Dist: onnxruntime>=1.16; extra == "onnx"
+Provides-Extra: dev
+Requires-Dist: pytest>=7.4; extra == "dev"
+Requires-Dist: pytest-cov>=4.1; extra == "dev"
+Requires-Dist: ruff>=0.5; extra == "dev"
+Requires-Dist: pybind11>=2.11; extra == "dev"
+Provides-Extra: all
+Requires-Dist: PySide6-Essentials>=6.5; extra == "all"
+Requires-Dist: ultralytics>=8.1; extra == "all"
+Requires-Dist: torch>=2.0; extra == "all"
+Requires-Dist: onnxruntime>=1.16; extra == "all"

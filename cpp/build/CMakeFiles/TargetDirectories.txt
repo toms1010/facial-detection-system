@@ -1,0 +1,10 @@
+/home/tommyp/Desktop/facial-detection-system/cpp/build/CMakeFiles/test.dir
+/home/tommyp/Desktop/facial-detection-system/cpp/build/CMakeFiles/edit_cache.dir
+/home/tommyp/Desktop/facial-detection-system/cpp/build/CMakeFiles/rebuild_cache.dir
+/home/tommyp/Desktop/facial-detection-system/cpp/build/cpp/CMakeFiles/visionai_hardware_objects.dir
+/home/tommyp/Desktop/facial-detection-system/cpp/build/cpp/CMakeFiles/visionai_hw.dir
+/home/tommyp/Desktop/facial-detection-system/cpp/build/cpp/CMakeFiles/_visionai_native.dir
+/home/tommyp/Desktop/facial-detection-system/cpp/build/cpp/CMakeFiles/visionai_native_tests.dir
+/home/tommyp/Desktop/facial-detection-system/cpp/build/cpp/CMakeFiles/test.dir
+/home/tommyp/Desktop/facial-detection-system/cpp/build/cpp/CMakeFiles/edit_cache.dir
+/home/tommyp/Desktop/facial-detection-system/cpp/build/cpp/CMakeFiles/rebuild_cache.dir

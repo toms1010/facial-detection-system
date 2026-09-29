@@ -1,0 +1,8 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/tommyp/Desktop/facial-detection-system/cpp/build/cmake_install.cmake",
+		"/home/tommyp/Desktop/facial-detection-system/cpp/build/cpp/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

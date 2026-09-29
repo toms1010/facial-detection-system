@@ -1,0 +1,9 @@
+{
+  "include": ["python", "tests"],
+  "exclude": ["**/node_modules", "cpp", "**/__pycache__"],
+  "venv": ".venv",
+  "venvPath": ".",
+  "pythonVersion": "3.10",
+  "typeCheckingMode": "basic",
+  "reportMissingTypeStubs": "none"
+}
