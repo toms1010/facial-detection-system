@@ -4,9 +4,10 @@ YuNet is the default detector because it is a small, accurate CNN that ships as
 a 230 KB ONNX file and runs on CPU in a couple of milliseconds, which keeps the
 whole application usable offline with no PyTorch install.
 
-It returns face boxes only, including five extra landmark points per face.
-The landmarks are kept on the detection because they make the crop alignment in
-the classifier stage noticeably better on tilted faces.
+It returns face boxes, a per-detection confidence, and five landmark points per
+face (both eyes, the nose and the mouth corners), in frame coordinates. The
+landmarks are carried on the detection for consumers that need them; nothing in
+the current pipeline reads them, so they cost nothing to expose.
 """
 
 from __future__ import annotations
@@ -137,22 +138,30 @@ class YuNetFaceDetector(FaceDetector):
         start = time.perf_counter()
 
         height, width = image.shape[:2]
-        self._ensure_input_size(width, height)
+        scale_x, scale_y, work = self._prepare(image)
+        self._ensure_input_size(work.shape[1], work.shape[0])
 
         try:
-            _, faces = detector.detect(image)
+            _, faces = detector.detect(work)
         except cv2.error as exc:
             raise InferenceError(f"YuNet inference failed: {exc}") from exc
 
         detections: list[FaceDetection] = []
         if faces is not None:
             for face in np.asarray(faces).reshape(-1, 15):
+                # OpenCV lays each row out as x, y, w, h, then the five
+                # landmark pairs, then the score last:
+                #   [x, y, w, h, rx, ry, lx, ly, nx, ny, mlx, mly, mrx, mry, score]
+                # The score is therefore column 14, not column 4.
                 x, y, w, h = (float(v) for v in face[:4])
-                score = float(face[4])
-                box = Box(x, y, x + w, y + h).clamp(width, height)
+                score = float(face[14])
+                box = Box(
+                    x * scale_x, y * scale_y, (x + w) * scale_x, (y + h) * scale_y
+                ).clamp(width, height)
                 if box.width < 8 or box.height < 8:
                     continue
-                landmarks = np.asarray(face[5:15], dtype=np.float32).reshape(5, 2)
+                raw = np.asarray(face[4:14], dtype=np.float32).reshape(5, 2)
+                landmarks = raw * np.array([scale_x, scale_y], dtype=np.float32)
                 detection = FaceDetection(box=box, score=score, source_class="face")
                 detection.landmarks = landmarks
                 detections.append(detection)
@@ -160,6 +169,23 @@ class YuNetFaceDetector(FaceDetector):
         detections.sort(key=lambda d: d.box.area, reverse=True)
         self._last_latency_ms = (time.perf_counter() - start) * 1000.0
         return detections
+
+    def _prepare(self, image: np.ndarray) -> tuple[float, float, np.ndarray]:
+        """Shrink ``image`` so its long side is :attr:`input_size`, keeping aspect.
+
+        Returns the horizontal and vertical factors to *multiply* detector
+        coordinates by to recover frame coordinates. A frame already at or below
+        the target is passed through untouched, so small frames keep full detail.
+        """
+        height, width = image.shape[:2]
+        longest = max(width, height)
+        if self.input_size <= 0 or longest <= self.input_size:
+            return 1.0, 1.0, image
+        scale = self.input_size / float(longest)
+        new_w = max(16, int(round(width * scale)))
+        new_h = max(16, int(round(height * scale)))
+        resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        return width / new_w, height / new_h, resized
 
     def _require_detector(self) -> Any:
         """Return the loaded network, loading it on first use.

@@ -58,6 +58,11 @@ class ClassificationStage:
         results: dict[int, ExpressionResult] = {}
         if not detections:
             self.last_count = 0
+            # No crops means no classification work, so the reported cost is
+            # zero rather than whatever the last populated frame happened to
+            # take. Leaving it stale would keep inflating the average after the
+            # faces have left.
+            self.last_latency_ms = 0.0
             return results
 
         image = validate_frame(frame, "frame")

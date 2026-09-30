@@ -190,6 +190,7 @@ Most-used keys:
 | `camera.index` | `0` | capture device |
 | `camera.width` / `camera.height` | `1280` / `720` | capture resolution |
 | `pipeline.inference_fps` | `15` | how often inference runs |
+| `pipeline.classify_every_n_frames` | `5` | re-read the expression every N frames; `1` runs it on every frame |
 | `models.detector` | `yunet` | `yunet`, `haar`, `yolo`, `onnx` |
 | `models.classifier` | `heuristic` | `heuristic`, `onnx`, `torchscript` |
 | `models.detection_confidence` | `0.5` | detector threshold |

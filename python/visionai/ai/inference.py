@@ -125,6 +125,8 @@ class InferencePipeline:
         self.stats = PipelineStats(inference_fps=settings.pipeline.inference_fps)
         self._frame_number = 0
         self._closed = False
+        self._classify_countdown = 0
+        self._last_classified_faces = -1
 
     @staticmethod
     def _frame_scale(settings: Settings) -> float:
@@ -158,7 +160,13 @@ class InferencePipeline:
         try:
             detections = self.detector_stage.run(frame)
             result.detections = detections
-            expressions = self.classifier_stage.run(frame, detections)
+            if self._should_classify(len(detections)):
+                expressions = self.classifier_stage.run(frame, detections)
+            else:
+                # The tracker keeps the previous label for the frames skipped
+                # here, so boxes and identities keep updating at the full rate
+                # while only the expensive model runs on its slower cadence.
+                expressions = {}
             result.expressions = expressions
         except ModelError as exc:
             result.error = f"{type(exc).__name__}: {exc}"
@@ -179,10 +187,30 @@ class InferencePipeline:
         )
         return result
 
+    def _should_classify(self, face_count: int) -> bool:
+        """Whether the expression model should run on this frame.
+
+        A trained classifier costs hundreds of milliseconds per face, while a
+        facial expression changes far more slowly than the inference rate, so
+        running it every frame is what makes the application feel stuck. The
+        label is refreshed on a cadence instead, and the tracker holds it in
+        between. A change in the number of faces classifies straight away, so
+        somebody walking into frame is labelled at once.
+        """
+        interval = max(1, self.settings.pipeline.classify_every_n_frames)
+        if face_count != self._last_classified_faces or self._classify_countdown <= 0:
+            self._classify_countdown = interval - 1
+            self._last_classified_faces = face_count
+            return True
+        self._classify_countdown -= 1
+        return False
+
     def reset(self) -> None:
         self.tracker.reset()
         self.stats.reset()
         self._frame_number = 0
+        self._classify_countdown = 0
+        self._last_classified_faces = -1
 
     def describe(self) -> dict[str, Any]:
         return {

@@ -14,6 +14,7 @@ from visionai.ai.errors import DeviceError, InferenceError, ModelMissingError
 from visionai.ai.models.base import (
     ExpressionClassifier,
     ExpressionResult,
+    to_probabilities,
     validate_frame,
 )
 from visionai.ai.models.descriptor import ModelDescriptor, load_descriptor, preprocess
@@ -148,7 +149,7 @@ class TorchScriptExpressionClassifier(ExpressionClassifier):
                 f"{len(labels)} declared classes; check the descriptor label order"
             )
         result = ExpressionResult.from_scores(
-            dict(zip(labels, (float(v) for v in vector), strict=True)),
+            dict(zip(labels, (float(v) for v in to_probabilities(vector)), strict=True)),
             model=self._descriptor.name,
             is_heuristic=False,
             threshold=self.confidence_threshold,

@@ -145,7 +145,7 @@ class TestModels:
         out = capsys.readouterr().out
         assert "Face models" in out
         assert "yunet" in out
-        assert "heuristic fallback" in out
+        assert "Expression models" in out
 
 
 class TestSelfTest:

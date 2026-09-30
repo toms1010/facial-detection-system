@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import re
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -199,6 +200,19 @@ class TestModelDirectory:
         assert (tmp_path / "models" / "face").is_dir()
 
     def test_no_expression_weights_ship_by_default(self, paths: PackagePaths) -> None:
-        """Shipping a trained model would impose its own licence and bias caveats."""
-        assert list(paths.emotion_models.glob("*.onnx")) == []
-        assert list(paths.emotion_models.glob("*.pt")) == []
+        """Shipping a trained model would impose its own licence and bias caveats.
+
+        Weights are gitignored and installed locally instead, so this asserts that
+        nothing under ``models/emotion`` is tracked by git rather than that the
+        directory is empty on disk.
+        """
+        repo_root = paths.emotion_models.parents[1]
+        relative = paths.emotion_models.relative_to(repo_root)
+        tracked = subprocess.run(
+            ["git", "ls-files", "--", str(relative)],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.split()
+        assert [name for name in tracked if name.endswith((".onnx", ".pt", ".pth"))] == []

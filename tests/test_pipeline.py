@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from visionai.ai.inference import InferencePipeline
-from visionai.ai.models.base import Box
+from visionai.ai.models.base import Box, ExpressionResult, FaceDetection
 from visionai.ai.models.registry import ModelRegistry
 from visionai.config.settings import Settings
 from visionai.pipeline.engine import PipelineEngine, PipelineState
@@ -150,6 +150,163 @@ class TestStageFailureHandling:
         result = pipeline.process(np.zeros((120, 160, 3), dtype=np.uint8))
         assert result.error == ""
         pipeline.close()
+
+
+class TestClassificationCadence:
+    """The expression model must not run on every frame.
+
+    A trained classifier costs hundreds of milliseconds per face while a facial
+    expression changes far more slowly than the inference rate, so running it
+    every frame is what made the application feel stuck.
+    """
+
+    @staticmethod
+    def _counting_pipeline(settings, registry, faces: int = 2):
+        """A pipeline that records how many frames ran the classifier.
+
+        The count is of classification *rounds*, not of crops: the stage calls
+        the classifier once per face, so counting ``predict`` would conflate the
+        two and hide the cadence.
+        """
+        rounds: list[int] = []
+
+        class CountingClassifier:
+            name = "counting"
+            is_heuristic = False
+            is_trained_model = True
+            class_names = ("happy", "sad")
+            last_latency_ms = 1.0
+
+            def load(self) -> None: ...
+
+            @property
+            def is_ready(self) -> bool:
+                return True
+
+            def predict(self, crop: np.ndarray):
+                return ExpressionResult(
+                    label="happy", confidence=0.9, scores={"happy": 0.9, "sad": 0.1}
+                )
+
+            def close(self) -> None: ...
+
+            def describe(self) -> dict:
+                return {"name": "counting"}
+
+        class FixedDetections:
+            name = "fixed"
+            last_latency_ms = 1.0
+
+            def load(self) -> None: ...
+
+            @property
+            def is_ready(self) -> bool:
+                return True
+
+            def detect(self, frame: np.ndarray) -> list:
+                return [
+                    FaceDetection(
+                        box=Box(10 + i * 60, 10, 60 + i * 60, 60),
+                        score=0.9,
+                        source_class="face",
+                    )
+                    for i in range(faces)
+                ]
+
+            def close(self) -> None: ...
+
+            def describe(self) -> dict:
+                return {"name": "fixed"}
+
+        pipeline = InferencePipeline(
+            settings, registry, FixedDetections(), CountingClassifier()
+        )
+        stage_run = pipeline.classifier_stage.run
+
+        def counted(*args, **kwargs):
+            rounds.append(1)
+            return stage_run(*args, **kwargs)
+
+        pipeline.classifier_stage.run = counted
+        return pipeline, rounds
+
+    def test_classifier_runs_on_a_cadence_not_every_frame(
+        self, settings: Settings, registry: ModelRegistry
+    ) -> None:
+        settings.pipeline.classify_every_n_frames = 5
+        pipeline, calls = self._counting_pipeline(settings, registry)
+        try:
+            for _ in range(20):
+                pipeline.process(np.zeros((240, 320, 3), dtype=np.uint8))
+            assert 0 < len(calls) < 20
+        finally:
+            pipeline.close()
+
+    def test_one_classifies_every_frame(self, settings: Settings, registry: ModelRegistry) -> None:
+        settings.pipeline.classify_every_n_frames = 1
+        pipeline, calls = self._counting_pipeline(settings, registry)
+        try:
+            for _ in range(6):
+                pipeline.process(np.zeros((240, 320, 3), dtype=np.uint8))
+            assert len(calls) == 6
+        finally:
+            pipeline.close()
+
+    def test_a_new_face_is_classified_at_once(
+        self, settings: Settings, registry: ModelRegistry
+    ) -> None:
+        """Somebody walking into frame must not wait for the next tick."""
+        settings.pipeline.classify_every_n_frames = 10
+        pipeline, calls = self._counting_pipeline(settings, registry, faces=1)
+        try:
+            for _ in range(5):
+                pipeline.process(np.zeros((240, 320, 3), dtype=np.uint8))
+            baseline = len(calls)
+            pipeline._last_classified_faces = 99  # simulate a change in face count
+            pipeline.process(np.zeros((240, 320, 3), dtype=np.uint8))
+            assert len(calls) == baseline + 1
+        finally:
+            pipeline.close()
+
+    def test_tracks_keep_their_label_on_frames_that_skip_classification(
+        self, settings: Settings, registry: ModelRegistry
+    ) -> None:
+        """The skipped frames must show the held label, not a blank one."""
+        settings.pipeline.classify_every_n_frames = 5
+        pipeline, calls = self._counting_pipeline(settings, registry)
+        try:
+            labels = []
+            for _ in range(12):
+                result = pipeline.process(np.zeros((240, 320, 3), dtype=np.uint8))
+                labels.append(result.top_expression().label if result.top_expression() else None)
+            assert "happy" in labels
+            assert labels[-1] == "happy"
+        finally:
+            pipeline.close()
+
+    def test_classification_latency_is_reported_on_skipped_frames(
+        self, settings: Settings, registry: ModelRegistry
+    ) -> None:
+        """The reported cost must stay representative, not read 0 ms."""
+        settings.pipeline.classify_every_n_frames = 5
+        pipeline, _ = self._counting_pipeline(settings, registry)
+        try:
+            for _ in range(4):
+                result = pipeline.process(np.zeros((240, 320, 3), dtype=np.uint8))
+            assert result.classification_ms > 0
+        finally:
+            pipeline.close()
+
+    def test_reset_restarts_the_cadence(self, settings: Settings, registry: ModelRegistry) -> None:
+        settings.pipeline.classify_every_n_frames = 5
+        pipeline, _ = self._counting_pipeline(settings, registry)
+        try:
+            for _ in range(4):
+                pipeline.process(np.zeros((240, 320, 3), dtype=np.uint8))
+            pipeline.reset()
+            assert pipeline._classify_countdown == 0
+        finally:
+            pipeline.close()
 
 
 class TestClassificationStage:

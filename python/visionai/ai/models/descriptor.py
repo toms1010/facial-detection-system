@@ -200,6 +200,6 @@ def preprocess(crop: np.ndarray, descriptor: ModelDescriptor):
     tensor = rgb.astype(np.float32) * float(descriptor.scale)
     mean = np.asarray(descriptor.mean, dtype=np.float32)
     std = np.asarray(descriptor.std, dtype=np.float32)
-    if np.any(std) and np.any(mean):
+    if np.any(std):
         tensor = (tensor - mean) / np.where(std == 0, 1.0, std)
     return np.ascontiguousarray(tensor.transpose(2, 0, 1)[None], dtype=np.float32)

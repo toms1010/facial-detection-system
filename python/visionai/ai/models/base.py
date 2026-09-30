@@ -19,6 +19,34 @@ from visionai.ai import taxonomy
 from visionai.ai.errors import FrameError, InferenceError, ModelLoadError
 
 
+def to_probabilities(vector: np.ndarray) -> np.ndarray:
+    """Turn a classifier's raw output into a non-negative distribution.
+
+    Trained expression models commonly emit logits rather than probabilities, and
+    a logit vector can contain negatives and need not sum to 1. Feeding those
+    straight into :func:`visionai.ai.taxonomy.align_scores` clamps the negatives
+    to zero and renormalises what is left, which flattens the ranking and inflates
+    the apparent confidence of whichever class happened to score highest.
+
+    Output that already looks like a distribution (non-negative and summing to
+    1 within tolerance) is passed through unchanged, so models that apply softmax
+    internally keep working.
+    """
+    values = np.asarray(vector, dtype=np.float64).reshape(-1)
+    if values.size == 0:
+        raise InferenceError("classifier returned an empty score vector")
+    finite = np.where(np.isfinite(values), values, 0.0)
+    total = float(finite.sum())
+    if np.all(finite >= 0.0) and abs(total - 1.0) <= 1e-3:
+        return finite
+    shifted = finite - finite.max()
+    exponentiated = np.exp(shifted)
+    denominator = float(exponentiated.sum())
+    if denominator <= 0.0:
+        return np.full_like(finite, 1.0 / finite.size)
+    return exponentiated / denominator
+
+
 @dataclass
 class Box:
     """An axis-aligned box in pixel coordinates of the source frame."""

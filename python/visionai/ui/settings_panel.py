@@ -183,6 +183,13 @@ class SettingsPanel(QWidget):
         grid = QFormLayout()
         grid.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
         self.inference_fps = _double_spin(0.5, 120.0, 1.0, 1)
+        self.classify_every_n_frames = QSpinBox()
+        self.classify_every_n_frames.setRange(1, 600)
+        self.classify_every_n_frames.setSingleStep(1)
+        self.classify_every_n_frames.setToolTip(
+            "Re-read the facial expression every N frames. Higher is faster; the "
+            "previous label is held in between."
+        )
         self.processing_width = QSpinBox()
         self.processing_width.setRange(160, 7680)
         self.processing_width.setSingleStep(160)
@@ -199,6 +206,7 @@ class SettingsPanel(QWidget):
         self.show_fps = QCheckBox("Performance overlay")
 
         grid.addRow("Inference FPS", self.inference_fps)
+        grid.addRow("Classify every N frames", self.classify_every_n_frames)
         grid.addRow("Processing width", self.processing_width)
         grid.addRow("Tracking IoU", self.track_iou)
         grid.addRow("Track max age", self.track_max_age)
@@ -316,6 +324,7 @@ class SettingsPanel(QWidget):
 
         pipeline, ui = settings.pipeline, settings.ui
         self.inference_fps.setValue(pipeline.inference_fps)
+        self.classify_every_n_frames.setValue(pipeline.classify_every_n_frames)
         self.processing_width.setValue(pipeline.processing_width)
         self.track_iou.setValue(pipeline.track_iou_threshold)
         self.track_max_age.setValue(pipeline.track_max_age)
@@ -377,6 +386,7 @@ class SettingsPanel(QWidget):
 
         pipeline = settings.pipeline
         pipeline.inference_fps = self.inference_fps.value()
+        pipeline.classify_every_n_frames = self.classify_every_n_frames.value()
         pipeline.processing_width = self.processing_width.value()
         pipeline.track_iou_threshold = self.track_iou.value()
         pipeline.track_max_age = self.track_max_age.value()

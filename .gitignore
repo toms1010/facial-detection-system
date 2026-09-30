@@ -1,0 +1,26 @@
+# Expression model weights are downloaded locally, never committed.
+# See docs/AI_MODEL.md for how to obtain and describe one.
+models/emotion/*.onnx
+models/emotion/*.pt
+models/emotion/*.pth
+
+# Descriptor is kept so the tracked tree documents the expected format,
+# but a locally-installed model supersedes it.
+models/emotion/*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Native build output
+cpp/build/
+
+# Runtime
+*.log
+*.db

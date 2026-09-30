@@ -341,7 +341,8 @@ class TestSettingsPanel:
 
     def test_registry_note_mentions_fallback(self, panel) -> None:
         panel.set_registry_note()
-        assert "heuristic" in panel.registry_note.text().lower()
+        note = panel.registry_note.text().lower()
+        assert "expression models found" in note
 
     def test_camera_toggle_signal(self, panel) -> None:
         received: list[bool] = []

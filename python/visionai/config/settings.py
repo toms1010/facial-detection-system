@@ -176,6 +176,7 @@ class PipelineSettings:
     smooth_alpha: float = 0.45
     label_hold_frames: int = 12
     processing_width: int = 960
+    classify_every_n_frames: int = 5
 
     def __post_init__(self) -> None:
         self.validate()  # PipelineSettings is always valid from construction
@@ -188,6 +189,7 @@ class PipelineSettings:
         self.smooth_alpha = float(_clamp(self.smooth_alpha, 0.0, 1.0, 0.45))
         self.label_hold_frames = _clamp_int(self.label_hold_frames, 0, 600, 12)
         self.processing_width = _clamp_int(self.processing_width, 160, 7680, 960)
+        self.classify_every_n_frames = _clamp_int(self.classify_every_n_frames, 1, 600, 5)
         return self
 
 

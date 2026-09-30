@@ -13,6 +13,7 @@ from visionai.ai.errors import InferenceError, ModelMissingError
 from visionai.ai.models.base import (
     ExpressionClassifier,
     ExpressionResult,
+    to_probabilities,
     validate_frame,
 )
 from visionai.ai.models.descriptor import ModelDescriptor, load_descriptor, preprocess
@@ -145,7 +146,7 @@ class OnnxExpressionClassifier(ExpressionClassifier):
                 f"model {self._descriptor.name} produced {vector.size} scores for "
                 f"{len(labels)} declared classes; check the descriptor label order"
             )
-        finite = np.where(np.isfinite(vector), vector, 0.0)
+        finite = to_probabilities(vector)
         result = ExpressionResult.from_scores(
             dict(zip(labels, (float(v) for v in finite), strict=True)),
             model=self._descriptor.name,
