@@ -101,7 +101,7 @@ object, which removes a whole class of intermittent bugs.
 
 ## Testing
 
-715 Python tests plus 72 native checks, needing no camera, display or network.
+776 Python tests plus 73 native checks, needing no camera, display or network.
 Optional dependencies are covered by markers that skip themselves
 (`requires_qt`, `requires_native`, `requires_ai`, `camera`), so a partial
 install still gets a meaningful suite.

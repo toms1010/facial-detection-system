@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from visionai.ai.errors import ConfigError
 from visionai.config.settings import (
     CameraSettings,
     HardwareSettings,
@@ -40,9 +41,22 @@ def test_out_of_range_values_are_clamped() -> None:
 
 
 def test_non_numeric_values_fall_back_to_defaults() -> None:
-    camera = CameraSettings(index="not-a-number", width=None)
+    camera = CameraSettings(index="not-a-number", width=None)  # type: ignore[arg-type]
     assert camera.index == 0
     assert camera.width == 1280
+
+
+@pytest.mark.parametrize("bad", ["abc", None, "nan", "inf", float("nan"), float("inf")])
+def test_unparseable_floats_fall_back_instead_of_raising(bad: object) -> None:
+    """Regression: a hand-edited value raised TypeError and wedged startup."""
+    assert PipelineSettings(inference_fps=bad).inference_fps == 15.0  # type: ignore[arg-type]
+    assert ModelSettings(detection_confidence=bad).detection_confidence == 0.5  # type: ignore[arg-type]
+    assert HardwareSettings(interval=bad).interval == 1.0  # type: ignore[arg-type]
+
+
+def test_numeric_strings_are_still_accepted() -> None:
+    assert PipelineSettings(inference_fps="30").inference_fps == 30.0  # type: ignore[arg-type]
+    assert ModelSettings(detection_confidence="0.9").detection_confidence == 0.9  # type: ignore[arg-type]
 
 
 def test_thresholds_are_clamped_to_unit_interval() -> None:
@@ -151,6 +165,38 @@ def test_merge_overrides_clamps_and_ignores_unknown() -> None:
 def test_merge_overrides_ignores_none() -> None:
     merged = Settings().merge_overrides({"camera.index": None})
     assert merged.camera.index == 0
+
+
+def test_merge_overrides_strict_rejects_a_typo() -> None:
+    """Regression: a mistyped --set was silently dropped."""
+    with pytest.raises(ConfigError) as info:
+        Settings().merge_overrides({"models.typo_key": 1}, strict=True)
+    assert "unknown setting 'models.typo_key'" in str(info.value)
+
+
+def test_merge_overrides_strict_names_the_valid_keys() -> None:
+    with pytest.raises(ConfigError) as info:
+        Settings().merge_overrides({"models.typo_key": 1}, strict=True)
+    assert "valid keys in 'models'" in str(info.value)
+    assert "detector" in str(info.value)
+
+
+def test_merge_overrides_strict_rejects_an_unknown_group() -> None:
+    with pytest.raises(ConfigError) as info:
+        Settings().merge_overrides({"nonesuch.key": 1}, strict=True)
+    assert "unknown setting 'nonesuch.key'" in str(info.value)
+
+
+def test_merge_overrides_cannot_overwrite_a_method() -> None:
+    """A method name is not a setting, so it must not be silently replaced."""
+    with pytest.raises(ConfigError):
+        Settings().merge_overrides({"camera.validate": 1}, strict=True)
+    assert callable(Settings().camera.validate)
+
+
+def test_merge_overrides_strict_accepts_real_settings() -> None:
+    merged = Settings().merge_overrides({"ui.theme": "light"}, strict=True)
+    assert merged.ui.theme == "light"
 
 
 def test_save_and_load(tmp_path: Path) -> None:

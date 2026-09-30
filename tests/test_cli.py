@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from visionai import __version__
-from visionai.main import build_parser, main
+from visionai.main import _with_default_command, build_parser, main
 
 
 @pytest.fixture(autouse=True)
@@ -36,6 +36,38 @@ class TestParser:
     def test_default_command_is_run(self) -> None:
         args = build_parser().parse_args([])
         assert args.command is None
+
+    def test_bare_invocation_gets_the_run_defaults(self) -> None:
+        """Regression: `visionai` alone raised AttributeError on args.source."""
+        args = build_parser().parse_args(_with_default_command([]))
+        assert args.command == "run"
+        assert args.source == ""
+        assert args.start is False
+        assert args.set == []
+
+    def test_default_command_keeps_the_global_flags(self) -> None:
+        args = build_parser().parse_args(_with_default_command(["--no-log-file"]))
+        assert args.command == "run"
+        assert args.no_log_file is True
+
+    def test_a_global_value_is_not_read_as_a_command(self) -> None:
+        args = build_parser().parse_args(
+            _with_default_command(["--config", "run", "--no-log-file"])
+        )
+        assert args.command == "run"
+        assert args.config == Path("run")
+
+    def test_a_given_command_is_left_alone(self) -> None:
+        assert _with_default_command(["headless", "--frames", "3"]) == [
+            "headless",
+            "--frames",
+            "3",
+        ]
+
+    def test_help_is_not_rewritten(self) -> None:
+        assert _with_default_command(["--help"]) == ["--help"]
+        assert _with_default_command(["-h"]) == ["-h"]
+        assert _with_default_command(["--version"]) == ["--version"]
 
     @pytest.mark.parametrize(
         "command",
@@ -144,7 +176,13 @@ class TestHeadless:
     def test_reports_performance_metrics(self, capsys: pytest.CaptureFixture) -> None:
         run(["--no-log-file", "headless", "--source", "synthetic", "--frames", "6", "--no-colour"])
         out = capsys.readouterr().out
-        for label in ("Frames processed", "Average FPS", "Avg inference", "CPU usage", "RAM usage"):
+        for label in (
+            "Frames processed",
+            "Average FPS",
+            "Avg inference",
+            "CPU usage",
+            "System RAM used",
+        ):
             assert label in out
 
     def test_hardware_lines_are_printed(self, capsys: pytest.CaptureFixture) -> None:
@@ -210,6 +248,29 @@ class TestSettings:
         run(["--no-log-file", "settings", "set", "camera.index"])
         assert json.loads(isolated_config.read_text())["camera"]["index"] == 0
 
+    def test_set_rejects_a_typo_instead_of_claiming_success(
+        self, capsys: pytest.CaptureFixture, isolated_config: Path
+    ) -> None:
+        """Regression: `models.typo_key=1` printed 'settings written' and did nothing."""
+        code = run(["--no-log-file", "settings", "set", "models.typo_key=1"])
+        captured = capsys.readouterr()
+        assert code == 2
+        assert "unknown setting 'models.typo_key'" in captured.err
+        assert "settings written" not in captured.out
+
+    def test_set_rejects_a_bad_value_without_crashing(self, isolated_config: Path) -> None:
+        """Regression: `inference_fps=abc` raised TypeError out of the clamp."""
+        assert run(["--no-log-file", "settings", "set", "pipeline.inference_fps=abc"]) == 0
+        assert json.loads(isolated_config.read_text())["pipeline"]["inference_fps"] == 15.0
+
+    def test_a_run_flag_typo_is_reported(
+        self, capsys: pytest.CaptureFixture
+    ) -> None:
+        code = run(["--no-log-file", "headless", "--source", "synthetic", "--frames", "2",
+                    "--set", "models.typo=1"])
+        assert code == 2
+        assert "unknown setting 'models.typo'" in capsys.readouterr().err
+
     def test_reset(self, isolated_config: Path) -> None:
         run(["--no-log-file", "settings", "set", "camera.index=9"])
         run(["--no-log-file", "settings", "reset"])
@@ -221,6 +282,15 @@ class TestSettings:
 
 
 class TestOverrides:
+    def test_no_log_file_suppresses_the_file_but_not_the_console(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Regression: --no-log-file silenced console logging, which its help denies."""
+        # isolated_config already points VISIONAI_LOG_DIR at tmp_path / "logs".
+        run(["--no-log-file", "headless", "--source", "synthetic", "--frames", "2", "--no-colour"])
+        assert not (tmp_path / "logs" / "visionai.log").exists()
+        assert "INFO" in capsys.readouterr().err
+
     def test_set_flags_override_the_config(self, capsys: pytest.CaptureFixture) -> None:
         run(
             [
@@ -291,3 +361,14 @@ class TestRunFallback:
         assert code == 3
         assert "No display detected" in err
         assert "headless" in err
+
+    def test_bare_command_does_not_crash(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Regression: `visionai` with no command raised AttributeError."""
+        monkeypatch.delenv("DISPLAY", raising=False)
+        monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+        code = run(["--no-log-file"])
+        assert code in (0, 3)
+        if code == 3:
+            assert "No display detected" in capsys.readouterr().err

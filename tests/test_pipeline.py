@@ -253,6 +253,7 @@ class TestPerformanceReport:
             faces_average=1.5,
             cpu_percent=32.0,
             ram_mb=512.0,
+            ram_label="Process RAM RSS",
             gpu_percent=48.0,
             gpu_temperature=54.0,
         )
@@ -262,11 +263,17 @@ class TestPerformanceReport:
             "Avg inference",
             "P95 inference",
             "CPU usage",
-            "RAM usage",
+            "Process RAM RSS",
             "GPU usage",
             "GPU temperature",
         ):
             assert label in text
+
+    def test_the_ram_label_states_which_quantity_it_is(self) -> None:
+        """Regression: system RAM and process RSS were both printed as 'RAM usage'."""
+        assert "System RAM used" in PerformanceReport().describe()
+        assert "RAM usage" not in PerformanceReport().describe()
+        assert PerformanceReport().to_dict()["ram_label"] == "System RAM used"
 
     def test_optional_gpu_fields_are_omitted(self) -> None:
         assert "GPU usage" not in PerformanceReport().describe()

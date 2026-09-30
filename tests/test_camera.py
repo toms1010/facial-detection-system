@@ -118,17 +118,22 @@ class TestOpenSourceDispatch:
         assert isinstance(open_source("synthetic", CameraSettings()), SyntheticFrameSource)
 
     def test_none_placeholder(self) -> None:
-        source = open_source("none", CameraSettings())
-        assert source.read().size > 0
+        frame = open_source("none", CameraSettings()).read()
+        assert frame is not None
+        assert frame.size > 0
 
     def test_video_file(self, tmp_path: Path) -> None:
         assert isinstance(open_source(str(tmp_path / "a.mp4"), CameraSettings()), VideoFileSource)
 
     def test_index_is_applied(self) -> None:
-        assert open_source("3", CameraSettings()).settings.index == 3
+        source = open_source("3", CameraSettings())
+        assert isinstance(source, CameraManager)
+        assert source.settings.index == 3
 
     def test_device_path_is_applied(self) -> None:
-        assert open_source("/dev/video5", CameraSettings()).settings.device_path == "/dev/video5"
+        source = open_source("/dev/video5", CameraSettings())
+        assert isinstance(source, CameraManager)
+        assert source.settings.device_path == "/dev/video5"
 
 
 class TestFakeCapture:

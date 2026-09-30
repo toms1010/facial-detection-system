@@ -104,8 +104,8 @@ class TestDisplaySettings:
         "field", ["show_boxes", "show_labels", "show_confidence", "show_track_ids"]
     )
     def test_each_toggle_changes_the_output(self, frame: np.ndarray, field: str) -> None:
-        enabled = UISettings(**{field: True})
-        disabled = UISettings(**{field: False})
+        enabled = UISettings(**{field: True})  # type: ignore[arg-type]
+        disabled = UISettings(**{field: False})  # type: ignore[arg-type]
         with_on = render_overlay(frame, [make_track()], RenderOptions(settings=enabled))
         with_off = render_overlay(frame, [make_track()], RenderOptions(settings=disabled))
         assert not np.array_equal(with_on, with_off)

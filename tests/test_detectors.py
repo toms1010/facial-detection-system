@@ -86,7 +86,7 @@ class TestValidateFrame:
     )
     def test_rejects_unusable(self, bad: object) -> None:
         with pytest.raises(FrameError):
-            validate_frame(bad)
+            validate_frame(bad)  # type: ignore[arg-type]
 
 
 class TestFaceDetection:
@@ -95,7 +95,7 @@ class TestFaceDetection:
         assert make_detection(0, 0, 10, 10, score=-1.0).score == 0.0
 
     def test_box_is_coerced_from_any(self) -> None:
-        detection = FaceDetection(box=[0, 0, 10, 10], score=0.5)
+        detection = FaceDetection(box=[0, 0, 10, 10], score=0.5)  # type: ignore[arg-type]
         assert detection.box.as_int() == (0, 0, 10, 10)
 
 
@@ -135,7 +135,7 @@ class TestYuNetDetector:
 
     def test_detect_rejects_none(self) -> None:
         with pytest.raises(FrameError):
-            YuNetFaceDetector().detect(None)
+            YuNetFaceDetector().detect(None)  # type: ignore[arg-type]
 
     def test_missing_weights_raise(self) -> None:
         with pytest.raises(ModelMissingError):

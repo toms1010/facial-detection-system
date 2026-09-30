@@ -31,6 +31,26 @@ from visionai.utils.logging_setup import configure_logging
 
 LOG = logging.getLogger("visionai.cli")
 
+COMMANDS = (
+    "run",
+    "headless",
+    "list-cameras",
+    "devices",
+    "models",
+    "self-test",
+    "benchmark",
+    "settings",
+    "db",
+    "user",
+)
+
+DEFAULT_COMMAND = "run"
+
+# Top-level options, so the default command can be inserted after them rather
+# than in front of them. ``--config`` and ``--log-level`` consume the next token.
+_GLOBAL_FLAGS = frozenset({"--no-log-file", "--sqlite", "--version"})
+_GLOBAL_VALUE_OPTIONS = frozenset({"--config", "--log-level"})
+
 EPILOG = """
 Expression output is an AI estimate from visible facial features. It is not a
 measurement of anyone's actual emotional state. See AI_MODEL.md and PRIVACY.md.
@@ -340,19 +360,56 @@ def _settings_from_args(args: argparse.Namespace) -> Settings:
         if value is not None:
             overrides[key] = value
     if overrides:
-        settings = settings.merge_overrides(overrides)
+        settings = settings.merge_overrides(overrides, strict=True)
     return settings.validate()
+
+
+def _with_default_command(argv: Sequence[str]) -> list[str]:
+    """Insert the default ``run`` command when none was given.
+
+    ``visionai`` with no command launches the desktop application, but argparse
+    only applies a subparser's defaults once that subparser has run, so the
+    ``run``-only options (``--source``, ``--start``, ...) would be absent from
+    the namespace. Global options stay in front of the inserted command, which
+    keeps ``visionai --no-log-file`` equivalent to
+    ``visionai --no-log-file run``.
+    """
+    tokens = list(argv)
+    if any(token in ("-h", "--help", "--version") for token in tokens):
+        return tokens
+
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token in _GLOBAL_VALUE_OPTIONS:
+            index += 2
+        elif token in _GLOBAL_FLAGS:
+            index += 1
+        else:
+            break
+
+    if index < len(tokens) and tokens[index] in COMMANDS:
+        return tokens
+    return [*tokens[:index], DEFAULT_COMMAND, *tokens[index:]]
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args(list(argv) if argv is not None else None)
-    command = args.command or "run"
+    raw = list(argv) if argv is not None else sys.argv[1:]
+    args = parser.parse_args(_with_default_command(raw))
+    command = args.command or DEFAULT_COMMAND
 
-    settings = _settings_from_args(args)
+    try:
+        settings = _settings_from_args(args)
+    except VisionAIError as exc:
+        # Reported before logging is configured, so it goes straight to stderr.
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     configure_logging(
         level=args.log_level or settings.logging.level,
-        console=not args.no_log_file and settings.logging.console,
+        # --no-log-file suppresses the rotating file only; console output is
+        # governed by logging.console so the flag does what its help says.
+        console=settings.logging.console,
         file=settings.logging.file and not args.no_log_file,
         directory=settings.logging.directory,
         max_bytes=settings.logging.max_bytes,
@@ -608,7 +665,7 @@ def _cmd_settings(args: argparse.Namespace, settings: Settings) -> int:
         print(f"settings reset to defaults in {destination}")
         return 0
     if command == "set":
-        updated = settings.merge_overrides(_parse_overrides(args.assignments))
+        updated = settings.merge_overrides(_parse_overrides(args.assignments), strict=True)
         destination = save_settings(updated, target)
         print(f"settings written to {destination}")
         return 0

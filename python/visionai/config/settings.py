@@ -13,10 +13,12 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import math
 from dataclasses import asdict, dataclass, field, fields, is_dataclass
 from pathlib import Path
 from typing import Any, TypeVar
 
+from visionai.ai.errors import ConfigError
 from visionai.config.paths import default_config_path
 
 LOG = logging.getLogger(__name__)
@@ -30,14 +32,29 @@ CAMERA_BACKENDS: dict[str, int | None] = {
 }
 
 
-def _clamp(value: float, low: float, high: float) -> float:
-    return low if value < low else high if value > high else value
+def _clamp(value: Any, low: float, high: float, default: float) -> float:
+    """Clamp to a range, falling back to ``default`` for anything unparseable.
+
+    Settings come from a hand-editable JSON file and from the command line, so
+    this must never raise: a bad value degrades to the default instead of
+    wedging the application.
+    """
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        LOG.warning("setting value %r is not a number; using %s", value, default)
+        return default
+    if not math.isfinite(parsed):
+        LOG.warning("setting value %r is not finite; using %s", value, default)
+        return default
+    return low if parsed < low else high if parsed > high else parsed
 
 
 def _clamp_int(value: Any, low: int, high: int, default: int) -> int:
     try:
         parsed = int(value)
     except (TypeError, ValueError):
+        LOG.warning("setting value %r is not a whole number; using %s", value, default)
         return default
     return max(low, min(high, parsed))
 
@@ -45,6 +62,20 @@ def _clamp_int(value: Any, low: int, high: int, default: int) -> int:
 def _as_choice(value: Any, choices: tuple[str, ...], default: str) -> str:
     text = str(value).strip().lower()
     return text if text in choices else default
+
+
+def _is_setting(target: Any, name: str) -> bool:
+    """True only for a declared field, so a method name cannot be overwritten."""
+    return is_dataclass(target) and name in {f.name for f in fields(target)}
+
+
+def _valid_keys_hint(target: Any, parts: list[str]) -> str:
+    if target is None:
+        return ""
+    names = sorted(f.name for f in fields(target))
+    prefix = ".".join(parts[:-1])
+    where = f" in {prefix!r}" if prefix else ""
+    return f"; valid keys{where}: {', '.join(names)}"
 
 
 @dataclass
@@ -118,11 +149,11 @@ class ModelSettings:
         self.device = _as_choice(self.device, ("auto", "cpu", "cuda", "cuda:0"), "auto")
         self.half_precision = bool(self.half_precision)
         self.imgsz = _clamp_int(self.imgsz, 64, 4096, 640)
-        self.detection_confidence = float(_clamp(self.detection_confidence, 0.01, 1.0))
-        self.detection_iou = float(_clamp(self.detection_iou, 0.0, 1.0))
-        self.emotion_confidence = float(_clamp(self.emotion_confidence, 0.0, 1.0))
+        self.detection_confidence = float(_clamp(self.detection_confidence, 0.01, 1.0, 0.5))
+        self.detection_iou = float(_clamp(self.detection_iou, 0.0, 1.0, 0.45))
+        self.emotion_confidence = float(_clamp(self.emotion_confidence, 0.0, 1.0, 0.35))
         self.max_faces = _clamp_int(self.max_faces, 1, 64, 16)
-        self.pad_ratio = float(_clamp(self.pad_ratio, 0.0, 0.5))
+        self.pad_ratio = float(_clamp(self.pad_ratio, 0.0, 0.5, 0.12))
         self.grayscale_input = bool(self.grayscale_input)
         for attr in ("detector_weights", "classifier_weights"):
             value = getattr(self, attr)
@@ -150,11 +181,11 @@ class PipelineSettings:
         self.validate()  # PipelineSettings is always valid from construction
 
     def validate(self) -> PipelineSettings:
-        self.inference_fps = float(_clamp(self.inference_fps, 0.5, 120.0))
+        self.inference_fps = float(_clamp(self.inference_fps, 0.5, 120.0, 15.0))
         self.track_max_age = _clamp_int(self.track_max_age, 0, 600, 15)
-        self.track_iou_threshold = float(_clamp(self.track_iou_threshold, 0.0, 1.0))
+        self.track_iou_threshold = float(_clamp(self.track_iou_threshold, 0.0, 1.0, 0.3))
         self.track_smooth = bool(self.track_smooth)
-        self.smooth_alpha = float(_clamp(self.smooth_alpha, 0.0, 1.0))
+        self.smooth_alpha = float(_clamp(self.smooth_alpha, 0.0, 1.0, 0.45))
         self.label_hold_frames = _clamp_int(self.label_hold_frames, 0, 600, 12)
         self.processing_width = _clamp_int(self.processing_width, 160, 7680, 960)
         return self
@@ -176,7 +207,7 @@ class HardwareSettings:
 
     def validate(self) -> HardwareSettings:
         self.enabled = bool(self.enabled)
-        self.interval = float(_clamp(self.interval, 0.1, 60.0))
+        self.interval = float(_clamp(self.interval, 0.1, 60.0, 1.0))
         self.disk_path = str(self.disk_path or "/")
         network_interface = self.network_interface
         if network_interface is not None:
@@ -326,8 +357,20 @@ class Settings:
                 setattr(instance, key, value)
         return instance.validate()
 
-    def merge_overrides(self, overrides: dict[str, Any]) -> Settings:
-        """Apply dotted CLI overrides such as ``{"models.detector": "yolo"}``."""
+    def merge_overrides(self, overrides: dict[str, Any], *, strict: bool = False) -> Settings:
+        """Apply dotted CLI overrides such as ``{"models.detector": "yolo"}``.
+
+        Args:
+            overrides: mapping of dotted setting paths to values.
+            strict: report an unknown path as an error instead of ignoring it.
+                Overrides also arrive from a hand-edited file, which must never
+                wedge the application, so the default stays lenient. Explicit
+                command-line input passes ``True`` so a typo is not silently
+                dropped.
+
+        Raises:
+            ConfigError: if ``strict`` and a path does not name a real setting.
+        """
         result = self.copy()
         for dotted, value in overrides.items():
             if value is None:
@@ -337,10 +380,13 @@ class Settings:
             for part in parts[:-1]:
                 target = getattr(target, part, None)
                 if target is None:
-                    LOG.warning("ignoring unknown settings path %r", dotted)
                     break
-            else:
-                setattr(target, parts[-1], value)
+            if target is None or not _is_setting(target, parts[-1]):
+                if strict:
+                    raise ConfigError(f"unknown setting {dotted!r}{_valid_keys_hint(target, parts)}")
+                LOG.warning("ignoring unknown settings path %r", dotted)
+                continue
+            setattr(target, parts[-1], value)
         return result.validate()
 
     def save(self, path: Path | str | None = None) -> Path:

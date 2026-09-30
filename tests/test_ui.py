@@ -148,7 +148,9 @@ class TestDashboard:
         frame = np.zeros((360, 640, 3), dtype=np.uint8)
         panel.update_result(make_result(frame, faces=2), frame, "heuristic", True, True)
         assert panel.table.rowCount() == 2
-        assert panel.table.item(0, 0).text() == "01"
+        first = panel.table.item(0, 0)
+        assert first is not None
+        assert first.text() == "01"
         assert "30" in panel.summary_text() or "12" in panel.summary_text()
 
     def test_shows_a_placeholder(self, app) -> None:
@@ -166,7 +168,9 @@ class TestDashboard:
         panel = DashboardPanel(DARK)
         frame = np.zeros((360, 640, 3), dtype=np.uint8)
         panel.update_result(make_result(frame, faces=1), frame, "m", False, False)
-        assert "threshold" in panel.table.item(0, 1).text().lower()
+        label = panel.table.item(0, 1)
+        assert label is not None
+        assert "threshold" in label.text().lower()
 
     def test_status_updates(self, app) -> None:
         panel = DashboardPanel(DARK)

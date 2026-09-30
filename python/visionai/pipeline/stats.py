@@ -160,6 +160,7 @@ class PerformanceReport:
     average_classification_ms: float = 0.0
     cpu_percent: float = 0.0
     ram_mb: float = 0.0
+    ram_label: str = "System RAM used"
     gpu_percent: float | None = None
     gpu_temperature: float | None = None
     faces_average: float = 0.0
@@ -177,7 +178,7 @@ class PerformanceReport:
             f"Avg classifier   : {self.average_classification_ms:.2f} ms",
             f"Average faces    : {self.faces_average:.2f}",
             f"CPU usage        : {self.cpu_percent:.1f} %",
-            f"RAM usage        : {self.ram_mb:.1f} MB",
+            f"{self.ram_label:<17}: {self.ram_mb:.1f} MB",
         ]
         if self.gpu_percent is not None:
             lines.append(f"GPU usage        : {self.gpu_percent:.1f} %")
@@ -197,6 +198,7 @@ class PerformanceReport:
             "average_classification_ms": round(self.average_classification_ms, 2),
             "cpu_percent": round(self.cpu_percent, 1),
             "ram_mb": round(self.ram_mb, 1),
+            "ram_label": self.ram_label,
             "gpu_percent": self.gpu_percent,
             "gpu_temperature": self.gpu_temperature,
             "faces_average": round(self.faces_average, 2),

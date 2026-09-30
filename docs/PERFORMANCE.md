@@ -56,3 +56,7 @@ visionai benchmark --frames 300 --json > bench.json
 
 Reports average FPS, mean and p95 inference latency, per-stage timings, CPU,
 RAM and GPU usage. `--source 0` benchmarks the real camera path.
+
+The RAM figure differs by command, and each says which one it is:
+`benchmark` prints `Process RAM RSS` (this process's resident set), while
+`headless` prints `System RAM used` (the whole machine).

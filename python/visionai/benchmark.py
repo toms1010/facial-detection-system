@@ -105,6 +105,7 @@ def run_benchmark(
         average_classification_ms=float(np.mean(classification)) if classification else 0.0,
         cpu_percent=cpu_percent,
         ram_mb=ram_bytes / 1024**2,
+        ram_label="Process RAM RSS",
         gpu_percent=gpu_percent,
         gpu_temperature=gpu_temperature,
         faces_average=float(np.mean(face_counts)) if face_counts else 0.0,

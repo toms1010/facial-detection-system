@@ -86,7 +86,7 @@ the core pipeline installs and runs even with nothing else present.
 cmake -S . -B cpp/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
       -DPython3_EXECUTABLE="$(command -v python)"
 cmake --build cpp/build
-ctest --test-dir cpp/build          # 72 native checks
+ctest --test-dir cpp/build          # 73 native checks
 ```
 
 This produces two artefacts, and the Python side picks whichever it finds:
@@ -171,13 +171,17 @@ Every command accepts `--config PATH`, `--log-level LEVEL` and `--no-log-file`.
 
 Settings live in `~/.config/linux-ai-vision/settings.json` (override with
 `VISIONAI_CONFIG`). Every value is clamped on load, so a hand-edited file cannot
-wedge the application.
+wedge the application: a number that cannot be parsed, or one outside its range,
+falls back to the default and says so on stderr.
 
 ```bash
 visionai settings show
 visionai settings set pipeline.inference_fps=20 models.device=cuda
 visionai settings set --help
 ```
+
+An unknown key is an error, not a silent no-op — `visionai settings set
+models.typo_key=1` prints the valid keys in that group and writes nothing.
 
 Most-used keys:
 
@@ -286,7 +290,7 @@ what is pending and the application refuses to run against a stale schema.
 ## Tests
 
 ```bash
-pytest                    # 715 tests
+pytest                    # 776 tests
 pytest -m "not slow"      # skip the benchmarks
 ruff check python tests
 ctest --test-dir cpp/build
@@ -347,7 +351,7 @@ cpp/
 models/
   face/          YuNet weights (bundled)
   emotion/       your expression model goes here (not bundled)
-tests/           715 tests
+tests/           776 tests
 ```
 
 Architecture notes are in [ARCHITECTURE.md](docs/ARCHITECTURE.md).

@@ -60,7 +60,7 @@ class TestHeuristicClassifier:
 
     def test_label_matches_the_argmax(self, face_crop: np.ndarray) -> None:
         result = HeuristicExpressionClassifier().predict(face_crop)
-        assert max(result.scores, key=result.scores.get) == result.label
+        assert max(result.scores, key=lambda label: result.scores[label]) == result.label
 
     def test_accepts_grayscale_crops(self, face_crop: np.ndarray) -> None:
         import cv2
